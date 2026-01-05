@@ -8,6 +8,22 @@ export default {
     tagName: "v${version}",
   },
 
+  changelog: {
+    disable: false,
+    // args: "-vv --latest",
+    args: "-o --tag ${version}",
+    // args: ["-o", "--tag", "v${version}"],
+    // template: [], // 也可以什么都不传递
+    template: [
+      "github",
+      {
+        changelog: {
+          header: "my-keepachangelogaaa",
+        },
+      },
+    ],
+  },
+
   hooks: {
     // "before:init": ["npm run test"],
     // "before:selectVersion": ({ logger }) => {

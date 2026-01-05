@@ -51,6 +51,7 @@ async function resolveTemplateConfig(template) {
 
   const defaultTplPath = path.resolve(
     __dirname,
+    "..",
     "templates",
     `${templateName}.toml`
   );
