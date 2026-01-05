@@ -74,6 +74,7 @@ async function collectRepoContext(config, ctx) {
 
   Object.assign((ctx.repo ??= {}), {
     repository: info.project,
+    owner: info.user,
   });
 }
 

@@ -4,7 +4,7 @@ export default {
 
   changelog: {
     disable: false,
-    args: ["-vv", "--latest"],
+    args: "-o --tag ${version}",
     template: [],
   },
 

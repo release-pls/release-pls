@@ -15,6 +15,7 @@ export async function summary(config, ctx) {
   const entries = [
     ["Version", ctx.version],
     ["Npm Dist Tag", ctx.tag],
+    ["Owner", ctx.repo.owner],
     ["Repository", ctx.repo.repository],
     ["Branch", ctx.git.branch],
     ["Git Tag", tagName],
