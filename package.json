@@ -36,6 +36,7 @@
   },
   "devDependencies": {
     "lodash-es": "^4.17.22",
-    "prettier": "^3.7.4"
+    "prettier": "^3.7.4",
+    "vitepress": "^1.6.4"
   }
 }
