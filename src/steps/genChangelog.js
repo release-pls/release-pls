@@ -6,7 +6,9 @@ export async function genChangelog(config, ctx) {
 
   config.changelog.args = transformArgs(config.changelog.args, ctx);
 
-  await changelog(config);
+  await changelog(config, {
+    stdio: "ignore",
+  });
 }
 
 function transformArgs(input, ctx) {

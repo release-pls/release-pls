@@ -12,7 +12,7 @@ import { runGitCliff } from "git-cliff";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // 生成变更日志
-export async function changelog(config = {}) {
+export async function changelog(config = {}, execaOptions = {}) {
   let { args, template } = merge({}, defaultsConf, config).changelog;
   args = filterArgs(args);
 
@@ -23,9 +23,7 @@ export async function changelog(config = {}) {
     args = [...args, "--config", tmpConfigFile];
   }
 
-  await runGitCliff(args, {
-    stdio: "ignore",
-  });
+  await runGitCliff(args, execaOptions);
   tmpConfigFile && (await unlink(tmpConfigFile));
 }
 
