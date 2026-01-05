@@ -35,7 +35,9 @@ jobs:
         run: npm publish
 
       - name: Generate a changelog
-        run: npx release-pls changelog -vv --latest
+        run: npx release-pls changelog -o --latest
+        env:
+          GITHUB_REPO: ${{ github.repository }}
 
       - name: Github Release
         uses: softprops/action-gh-release@v2
