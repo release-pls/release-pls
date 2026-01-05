@@ -14,9 +14,16 @@ export default {
     args: "-o --tag ${version}",
     // args: ["-o", "--tag", "v${version}"],
     // template: [], // 也可以什么都不传递
+
     template: [
       "github",
       {
+        // remote: {
+        //   github: {
+        //     owner: "ajiho",
+        //     repo: "releaset-it-demo",
+        //   },
+        // },
         changelog: {
           header: "my-keepachangelogaaa",
         },
