@@ -6,7 +6,7 @@ export default defineConfig({
   base: "/release-pls/",
   description: "一个简单的发布工具",
   head: [
-    ["link", { rel: "icon", href: "/favicon.svg", type: "image/svg+xml" }],
+    ["link", { rel: "icon", href: "favicon.svg", type: "image/svg+xml" }],
     [
       "meta",
       {
