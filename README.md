@@ -36,6 +36,17 @@ export default {
 };
 ```
 
+## 子命令
+
+### changelog
+
+```bash
+npx release-pls changelog --help
+
+# 也支持传入配置文件
+npx release-pls --config configs/my.mjs changelog
+```
+
 ## 分支保护
 
 新增分支保护功能,支持下面几种用法

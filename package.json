@@ -10,10 +10,11 @@
     "release": "node src/cli.js"
   },
   "bin": {
-    "release-pls": "cli.js"
+    "release-pls": "src/cli.js"
   },
   "keywords": [
-    "release"
+    "release-please",
+    "release-pls"
   ],
   "author": "ajiho",
   "license": "MIT",

@@ -1,6 +1,4 @@
 import { changelog } from "../changelog.js";
-import prompts from "prompts";
-import { CancelledError } from "../errors.js";
 import { renderTemplate } from "../utils/index.js";
 
 export async function genChangelog(config, ctx) {
@@ -9,16 +7,6 @@ export async function genChangelog(config, ctx) {
   config.changelog.args = transformArgs(config.changelog.args, ctx);
 
   await changelog(config);
-
-  const { yes: changelogOk } = await prompts({
-    type: "confirm",
-    name: "yes",
-    message: `Changelog generated. Does it look good?`,
-  });
-
-  if (!changelogOk) {
-    throw new CancelledError();
-  }
 }
 
 function transformArgs(input, ctx) {

@@ -1,12 +1,13 @@
 #!/usr/bin/env node
+
 import { Command } from "commander";
 import { release } from "./index.js";
 import { loadConfig } from "./config.js";
 import { NAME } from "./constants/index.js";
 import { logger } from "./utils/index.js";
 import { changelog } from "./changelog.js";
-import pkg from "./package.json" with { type: "json" };
-
+import pkg from "../package.json" with { type: "json" };
+import { CancelledError } from "./errors.js";
 const program = new Command();
 
 program
@@ -40,10 +41,10 @@ program
 try {
   await program.parseAsync(process.argv);
 } catch (err) {
-  console.log(err);
-
   if (err) {
-    logger.error(err);
+    err instanceof CancelledError
+      ? logger.warn(err.message)
+      : logger.error(err);
     process.exit(1);
   } else {
     process.exit(0);
