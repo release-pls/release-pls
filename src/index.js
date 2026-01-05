@@ -3,6 +3,7 @@ import { formatDuration, createTimer } from "./timer.js";
 import { logger } from "./utils/index.js";
 import { merge } from "lodash-es";
 import defaultsConf from "./defaults.js";
+import chalk from "chalk";
 
 import {
   selectVersion,
@@ -74,5 +75,5 @@ export async function release(config = {}) {
   await runHook(config.hooks?.["after:release"], ctx);
 
   const cost = formatDuration(timer.end());
-  logger.log(`🏁 Done (in ${cost})`);
+  logger.log(chalk.green(`🎉 Released successfully! (in ${cost})`));
 }

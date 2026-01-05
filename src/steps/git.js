@@ -16,7 +16,7 @@ export async function gitTag(config, ctx) {
 }
 
 export async function gitPush(config, ctx) {
-  const spinner = ora("Pushing to remote…").start();
+  const spinner = ora("Releasing…").start();
   const tagName = renderTemplate(config.git?.tagName, ctx);
   await run("git", ["push"]);
   await run("git", ["push", "origin", `refs/tags/${tagName}`]);

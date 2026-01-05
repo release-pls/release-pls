@@ -1,16 +1,42 @@
 import prompts from "prompts";
 import { CancelledError } from "../errors.js";
-import { getChangeset } from "../utils/index.js";
+import {
+  workerDirRestore,
+  gitChangeset,
+  blank,
+  renderTemplate,
+} from "../utils/index.js";
+import { logger } from "../utils/index.js";
+import chalk from "chalk";
 
 export async function summary(config, ctx) {
-  await getChangeset();
+  const tagName = renderTemplate(config.git?.tagName, ctx);
+
+  const entries = [
+    ["Version", ctx.version],
+    ["Npm Dist Tag", ctx.tag],
+    ["Repository", ctx.repo.repository],
+    ["Branch", ctx.git.branch],
+    ["Git Tag", tagName],
+  ];
+
+  blank();
+  logger.log(chalk.cyan("Summary:"));
+  logger.log(chalk.gray("----------------------------------"));
+  for (const [key, val] of entries) {
+    logger.log(chalk.green(key.padEnd(20)), chalk.yellow(val));
+  }
+  blank();
+  logger.log(chalk.cyan("Changeset:"));
+  await gitChangeset();
+  blank();
 
   const { ok } = await prompts(
     {
       type: "confirm",
       name: "ok",
-      message: "Push to remote?",
-      initial: true,
+      message: "Proceed with release",
+      initial: false,
     },
     {
       // 当用户按 Ctrl+C 或 ESC 时触发
@@ -21,9 +47,7 @@ export async function summary(config, ctx) {
   );
 
   if (ok === false) {
-    // 用户选择 No
-    console.log("You chose NO. Executing no-logic...");
-    // 在这里执行你的 no 逻辑
+    await workerDirRestore(); // 恢复所有的变更
     throw new CancelledError();
   }
 }

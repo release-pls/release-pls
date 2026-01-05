@@ -11,11 +11,8 @@ export const logger = createConsola({
   },
 });
 
-export async function getChangeset(cwd = process.cwd()) {
-  blank();
-  logger.log(`Changeset:`);
+export async function gitChangeset(cwd = process.cwd()) {
   await run("git", ["status", "--porcelain"], { stdio: "inherit", cwd });
-  blank();
 }
 
 /**
@@ -39,6 +36,11 @@ export async function checkGitRepoStatus(cwd = process.cwd()) {
     isGitRepo: true,
     isClean: stdout.trim().length === 0,
   };
+}
+
+export async function workerDirRestore(cwd = process.cwd()) {
+  await run("git", ["restore", "."], { cwd });
+  await run("git", ["clean", "-f"], { cwd });
 }
 
 export function renderTemplate(template, ctx) {
