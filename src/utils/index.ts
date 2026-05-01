@@ -8,7 +8,7 @@ import type {
   InternalReleaseContext,
   ResolvedConfig,
 } from "../config/types.ts";
-import { dryRunPrefix, NAME } from "../constants.ts";
+import { NAME } from "../constants.ts";
 import type { ResolvedConfigWithChangelog } from "./type.ts";
 
 type RequireBranch = Get<ResolvedConfig, "git.requireBranch">;
@@ -158,13 +158,17 @@ export function getCommandRawArgs(
   return idx === -1 ? [] : rawArgs.slice(idx + 1);
 }
 
+export function dryRunLog(desc: string) {
+  logger.info(ansis.yellow(`[dry-run] would ${desc}`));
+}
+
 export function effect<T>(
   config: ResolvedConfig,
-  desc: string | null,
+  desc: string,
   fn: () => T | Promise<T>,
 ) {
   if (config.dryRun) {
-    logger.info(ansis.yellow(`${dryRunPrefix}${desc}`));
+    dryRunLog(desc);
     return;
   }
   return Promise.resolve().then(fn);
@@ -173,35 +177,10 @@ export function effect<T>(
 export function runInDryRun<T>(
   config: ResolvedConfig,
   fn: () => T | Promise<T>,
-): Promise<T | undefined>;
-export function runInDryRun<T>(
-  config: ResolvedConfig,
-  desc: string,
-  fn: () => T | Promise<T>,
-): Promise<T | undefined>;
-export function runInDryRun<T>(
-  config: ResolvedConfig,
-  arg1: string | (() => T | Promise<T>),
-  arg2?: () => T | Promise<T>,
 ): Promise<T | undefined> {
   if (!config.dryRun) {
     return Promise.resolve(undefined);
   }
-
-  let fn: () => T | Promise<T>;
-  let desc: string | undefined;
-
-  if (typeof arg1 === "function") {
-    fn = arg1;
-  } else {
-    desc = arg1;
-    fn = arg2!;
-  }
-
-  if (desc) {
-    logger.info(ansis.yellow(`${dryRunPrefix}${desc}`));
-  }
-
   return Promise.resolve().then(fn);
 }
 

@@ -41,9 +41,7 @@ export type ResolvedConfig = MergeDeep<
   }
 >;
 
-export type Step = {
-  run?: (config: ResolvedConfig, ctx: InternalReleaseContext) => Promise<void>;
-  beforeHook?: HookEvent;
-  afterHook?: HookEvent;
-  effect?: false | string;
+export type Task = {
+  run: (config: ResolvedConfig, ctx: InternalReleaseContext) => Promise<void>;
+  effect?: string | ((ctx: InternalReleaseContext) => string) | false;
 };

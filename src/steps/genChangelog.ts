@@ -5,16 +5,16 @@ import type { InternalReleaseContext } from "../config/types.ts";
 import { OUTPUT_FLAGS } from "../constants.ts";
 import { GenerateChangelogError } from "../errors.ts";
 import { runGitCliff } from "../git-cliff.ts";
-import { logger, renderTemplate, runInDryRun } from "../utils/index.js";
+import { renderTemplate, runInDryRun } from "../utils/index.js";
 import type { ResolvedConfigWithChangelog } from "../utils/type.ts";
 
 export async function genChangelog(
   config: ResolvedConfigWithChangelog,
   context: InternalReleaseContext,
 ) {
-  config.git.changelog.args = renderArgs(config.git.changelog.args, context);
-  const spinner = createSpinner("Generating changelog, please wait…").start();
   try {
+    config.git.changelog.args = renderArgs(config.git.changelog.args, context);
+
     // dry-run模式下永远都把输出选项都移除掉
     await runInDryRun(config, () => {
       config.git.changelog.args = removeFlag(
@@ -22,6 +22,7 @@ export async function genChangelog(
         OUTPUT_FLAGS,
       );
     });
+    const spinner = createSpinner("Generating changelog, please wait…").start();
 
     const stdout = await runGitCliff(config.git.changelog);
 
@@ -38,14 +39,10 @@ export async function genChangelog(
       context.git.changelog = stdout;
     }
 
-    // dryRun模式下直接打印在控制台上
-    await runInDryRun(config, `generate changelog`, () => {
-      logger.box(context.git.changelog);
-    });
+    spinner.stop();
   } catch {
     throw new GenerateChangelogError();
   }
-  spinner.stop();
 }
 
 function renderArgs(args: string[], context: InternalReleaseContext) {
