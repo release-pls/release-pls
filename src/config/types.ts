@@ -42,6 +42,9 @@ export type ResolvedConfig = MergeDeep<
 >;
 
 export type Task = {
-  run: (config: ResolvedConfig, ctx: InternalReleaseContext) => Promise<void>;
+  run: (
+    config: ResolvedConfig,
+    ctx: InternalReleaseContext,
+  ) => void | Promise<void>;
   effect?: string | ((ctx: InternalReleaseContext) => string) | false;
 };

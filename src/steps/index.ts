@@ -1,3 +1,5 @@
+import { createSpinner } from "nanospinner";
+
 import type {
   InternalReleaseContext,
   ResolvedConfig,
@@ -16,6 +18,8 @@ import { selectVersion } from "./selectVersion.ts";
 import { summary } from "./summary.ts";
 export * from "./createContext.ts";
 
+const spinner = createSpinner("Releasing…");
+
 const hookTask = (
   hook: HookEvent,
   condition?: (config: ResolvedConfig, ctx: InternalReleaseContext) => boolean,
@@ -32,13 +36,11 @@ const steps: Task[] = [
   hookTask(HOOKS.BEFORE_SELECT_VERSION),
   {
     run: selectVersion,
-    effect: false,
   },
   hookTask(HOOKS.AFTER_SELECT_VERSION),
   hookTask(HOOKS.BEFORE_SELECT_TAG),
   {
     run: selectTag,
-    effect: false,
   },
   hookTask(HOOKS.AFTER_SELECT_TAG),
   // 变更日志
@@ -48,7 +50,6 @@ const steps: Task[] = [
       if (!hasChangelog(config)) return;
       await genChangelog(config, context);
     },
-    effect: false,
   },
   hookTask(HOOKS.AFTER_CHANGELOG, (config) => hasChangelog(config)),
   {
@@ -57,14 +58,12 @@ const steps: Task[] = [
         logger.box(context.git.changelog);
       });
     },
-    effect: false,
   },
   {
     run: async (config, context) => {
       if (!hasChangelog(config)) return;
       await confirmChangelog(context);
     },
-    effect: false,
   },
   // bump
   hookTask(HOOKS.BEFORE_BUMP),
@@ -79,7 +78,11 @@ const steps: Task[] = [
     run: async (config, context) => {
       await summary(context);
     },
-    effect: false,
+  },
+  {
+    run: () => {
+      spinner.start();
+    },
   },
   hookTask(HOOKS.BEFORE_GIT),
   hookTask(HOOKS.BEFORE_GIT_ADD),
@@ -116,6 +119,11 @@ const steps: Task[] = [
   hookTask(HOOKS.AFTER_GIT_PUSH),
   hookTask(HOOKS.AFTER_GIT),
   hookTask(HOOKS.AFTER_RELEASE),
+  {
+    run: () => {
+      spinner.stop();
+    },
+  },
 ];
 
 export async function runStep(
