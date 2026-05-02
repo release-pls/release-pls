@@ -43,7 +43,7 @@ export async function gitPush(
   config: ResolvedConfig,
   context: InternalReleaseContext,
 ) {
-  console.log(config);
+  // 根据选项来判断是否要输出在控制台上
 
   try {
     await x(

@@ -1,3 +1,4 @@
+import ansis from "ansis";
 import { Listr } from "listr2";
 import { x } from "tinyexec";
 
@@ -14,11 +15,11 @@ export async function runHook(
 
   const tasks = new Listr(
     {
-      title: `${hookName} (${hooks.length} hooks)`,
+      title: ansis.dim(`${hookName} (${hooks.length} hooks)`),
       task: () =>
         new Listr(
           hooks.map((hook, index) => {
-            const title = getHookTitle(hook, index, context);
+            const title = ansis.dim(getHookTitle(hook, index, context));
 
             return {
               title,
