@@ -18,8 +18,6 @@ import { selectVersion } from "./selectVersion.ts";
 import { summary } from "./summary.ts";
 export * from "./createContext.ts";
 
-const spinner = createSpinner("Releasing…");
-
 const hookTask = (
   hook: HookEvent,
   condition?: (config: ResolvedConfig, ctx: InternalReleaseContext) => boolean,
@@ -31,7 +29,44 @@ const hookTask = (
   effect: `run hook ${hook}`,
 });
 
-const steps: Task[] = [
+const gitTasks: Task[] = [
+  hookTask(HOOKS.BEFORE_GIT),
+  hookTask(HOOKS.BEFORE_GIT_ADD),
+  {
+    run: async () => {
+      await gitAdd();
+    },
+    effect: "git add",
+  },
+  hookTask(HOOKS.AFTER_GIT_ADD),
+  hookTask(HOOKS.BEFORE_GIT_COMMIT),
+  {
+    run: async (config, context) => {
+      await gitCommit(config, context);
+    },
+    effect: "git commit",
+  },
+  hookTask(HOOKS.AFTER_GIT_COMMIT),
+  hookTask(HOOKS.BEFORE_GIT_TAG),
+  {
+    run: async (config, context) => {
+      await gitTag(context);
+    },
+    effect: "git tag",
+  },
+  hookTask(HOOKS.AFTER_GIT_TAG),
+  hookTask(HOOKS.BEFORE_GIT_PUSH),
+  {
+    run: async (config, context) => {
+      await gitPush(context);
+    },
+    effect: "git push",
+  },
+  hookTask(HOOKS.AFTER_GIT_PUSH),
+  hookTask(HOOKS.AFTER_GIT),
+];
+
+export const steps: Task[] = [
   hookTask(HOOKS.BEFORE_INIT),
   hookTask(HOOKS.BEFORE_SELECT_VERSION),
   {
@@ -80,57 +115,23 @@ const steps: Task[] = [
     },
   },
   {
-    run: () => {
-      spinner.start();
-    },
-  },
-  hookTask(HOOKS.BEFORE_GIT),
-  hookTask(HOOKS.BEFORE_GIT_ADD),
-  {
-    run: async () => {
-      await gitAdd();
-    },
-    effect: "git add",
-  },
-  hookTask(HOOKS.AFTER_GIT_ADD),
-  hookTask(HOOKS.BEFORE_GIT_COMMIT),
-  {
-    run: async (config, context) => {
-      await gitCommit(config, context);
-    },
-    effect: "git commit",
-  },
-  hookTask(HOOKS.AFTER_GIT_COMMIT),
-  hookTask(HOOKS.BEFORE_GIT_TAG),
-  {
-    run: async (config, context) => {
-      await gitTag(context);
-    },
-    effect: "git tag",
-  },
-  hookTask(HOOKS.AFTER_GIT_TAG),
-  hookTask(HOOKS.BEFORE_GIT_PUSH),
-  {
-    run: async (config, context) => {
-      await gitPush(context);
-    },
-    effect: "git push",
-  },
-  hookTask(HOOKS.AFTER_GIT_PUSH),
-  hookTask(HOOKS.AFTER_GIT),
-  hookTask(HOOKS.AFTER_RELEASE),
-  {
-    run: () => {
-      spinner.stop();
+    run: async (config, ctx) => {
+      const spinner = createSpinner("Releasing…\n").start();
+      try {
+        await runTasks(gitTasks, config, ctx);
+      } finally {
+        spinner.stop();
+      }
     },
   },
 ];
 
-export async function runStep(
+export async function runTasks(
+  tasks: Task[],
   config: ResolvedConfig,
   ctx: InternalReleaseContext,
 ) {
-  for (const task of steps) {
+  for (const task of tasks) {
     if (!task.effect) {
       await task.run(config, ctx);
       continue;

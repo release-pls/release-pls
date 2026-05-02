@@ -1,7 +1,7 @@
 import { resolveConfig } from "./config/resolve.ts";
 import type { InlineConfig, ResolvedConfig } from "./config/types.ts";
 import { checkGitRepoStatus } from "./steps/checkGitRepoStatus.ts";
-import { createContext, runStep } from "./steps/index.ts";
+import { createContext, runTasks, steps } from "./steps/index.ts";
 import { effect, gitReset } from "./utils/index.ts";
 import { withTimer } from "./utils/timer.ts";
 
@@ -14,7 +14,7 @@ export async function release(inlineConfig: InlineConfig = {}) {
 
   try {
     await withTimer(async () => {
-      await runStep(config, context);
+      await runTasks(steps, config, context);
     });
   } catch (err) {
     await effect(config, `run git reset`, async () => {
