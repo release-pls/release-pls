@@ -1,5 +1,6 @@
 import type { MergeDeep, OverrideProperties, RequiredDeep } from "type-fest";
 
+import type { LogLevels } from "../constants.ts";
 import type {
   ChangelogOptions,
   Hook,
@@ -15,6 +16,7 @@ export interface InternalReleaseContext extends ReleaseContext {
 export interface InlineConfig extends UserConfig {
   config?: string;
   dryRun?: boolean;
+  verbose?: boolean[];
   cwd?: string;
 }
 
@@ -38,6 +40,7 @@ export type ResolvedConfig = MergeDeep<
     };
     hooks: NormalizedHooks;
     config?: string;
+    verbose: string;
   }
 >;
 
@@ -48,3 +51,4 @@ export type Task = {
   ) => void | Promise<void>;
   effect?: string | ((ctx: InternalReleaseContext) => string) | false;
 };
+export type LogLevelName = keyof typeof LogLevels;

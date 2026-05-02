@@ -12,7 +12,12 @@ import { defu } from "../utils/index.ts";
 import { inlineConfigSchema } from "./configSchema.ts";
 import defaultsConfig from "./defaults.ts";
 import { loadConfig } from "./index.ts";
-import type { InlineConfig, NormalizedHooks, ResolvedConfig } from "./types.ts";
+import type {
+  InlineConfig,
+  LogLevelName,
+  NormalizedHooks,
+  ResolvedConfig,
+} from "./types.ts";
 
 type Args = NonNullable<ChangelogOptions["args"]>;
 
@@ -36,9 +41,16 @@ export async function resolveConfig(
       changelog: normalizeChangelog(merged.git.changelog),
     },
     hooks: normalizeHooks(merged.hooks),
+    verbose: normalizeVerbose(merged.verbose),
   };
 
   return resolved;
+}
+
+function normalizeVerbose(v: boolean[]): LogLevelName {
+  if (v.length >= 2) return "debug";
+  if (v.length === 1) return "verbose";
+  return "default";
 }
 
 function normalizeHooks(hooks: Hooks = {}) {

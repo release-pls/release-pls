@@ -7,7 +7,7 @@ import pkg from "../package.json" with { type: "json" };
 import type { InlineConfig } from "./config/types.ts";
 import { NAME } from "./constants.ts";
 import { CancelledError } from "./errors.ts";
-import { getCommandRawArgs,logger } from "./utils/index.js";
+import { getCommandRawArgs, logger } from "./utils/index.js";
 
 if (lt(process.version, "22.18.0")) {
   logger.warn(
@@ -16,16 +16,23 @@ if (lt(process.version, "22.18.0")) {
 }
 
 const cli = cac(NAME);
-cli.help().version(pkg.version);
+cli.help().version(pkg.version, "-V, --version");
 
 cli
   .command("[run]", "Start release process")
   .alias("run")
   .option("-d, --dry-run", "Simulate release without applying changes.")
   .option("-c, --config <path>", "Path to the config file")
-  .option("-V, --verbose", "Verbose output (user hooks output)")
+  .option(
+    "-v, --verbose",
+    "Increase logging verbosity (default: user hooks output)",
+    {
+      type: [],
+    },
+  )
   .action(async (run, options: InlineConfig) => {
     const { release } = await import("./release.ts");
+
     await release(options);
   });
 

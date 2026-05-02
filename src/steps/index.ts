@@ -58,7 +58,7 @@ const gitTasks: Task[] = [
   hookTask(HOOKS.BEFORE_GIT_PUSH),
   {
     run: async (config, context) => {
-      await gitPush(context);
+      await gitPush(config, context);
     },
     effect: "git push",
   },

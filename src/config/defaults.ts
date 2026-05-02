@@ -23,6 +23,7 @@ const defaults = {
   hooks: {},
   cwd: process.cwd(),
   dryRun: false,
+  verbose: [],
 } satisfies InlineConfig;
 
 export default defaults;

@@ -39,7 +39,12 @@ export async function gitTag(context: InternalReleaseContext) {
   }
 }
 
-export async function gitPush(context: InternalReleaseContext) {
+export async function gitPush(
+  config: ResolvedConfig,
+  context: InternalReleaseContext,
+) {
+  console.log(config);
+
   try {
     await x(
       "git",

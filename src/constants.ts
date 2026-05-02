@@ -2,7 +2,11 @@ import type { HookEvent } from "./options.ts";
 
 export const NAME = "smarty-release";
 export const OUTPUT_FLAGS = ["o", "output"] as const;
-
+export const LogLevels = {
+  default: 0,
+  verbose: 1,
+  debug: 2,
+} as const;
 export const HOOKS = {
   BEFORE_INIT: "before:init",
   BEFORE_SELECT_VERSION: "before:selectVersion",
