@@ -5,7 +5,6 @@ import type {
   ResolvedConfig,
 } from "../config/types.ts";
 import { GitCommitError, GitPushError, GitTagError } from "../errors.ts";
-import { renderTemplate } from "../utils/index.ts";
 
 export async function gitAdd() {
   await x("git", ["add", "."], {
@@ -17,12 +16,14 @@ export async function gitCommit(
   config: ResolvedConfig,
   context: InternalReleaseContext,
 ) {
-  const message = renderTemplate(config.git.commitMessage, context);
-
   try {
-    await x("git", ["commit", ...config.git.commitArgs, "-m", message], {
-      throwOnError: true,
-    });
+    await x(
+      "git",
+      ["commit", ...config.git.commitArgs, "-m", context.git.commitMessage],
+      {
+        throwOnError: true,
+      },
+    );
   } catch {
     throw new GitCommitError();
   }
