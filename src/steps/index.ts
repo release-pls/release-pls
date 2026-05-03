@@ -9,6 +9,7 @@ import { HOOKS } from "../constants.ts";
 import type { HookEvent } from "../options.ts";
 import { runHook } from "../utils/hook.ts";
 import { effect, hasChangelog, logger, runInDryRun } from "../utils/index.ts";
+import type { ResolvedConfigWithChangelog } from "../utils/type.ts";
 import { bump } from "./bump.ts";
 import { confirmChangelog } from "./confirmChangelog.ts";
 import { genChangelog } from "./genChangelog.ts";
@@ -29,7 +30,7 @@ const hookTask = (
   effect: `run hook ${hook}`,
 });
 
-const changelogTasks: Task[] = [
+const changelogTasks: Task<ResolvedConfigWithChangelog>[] = [
   hookTask(HOOKS.BEFORE_CHANGELOG),
   {
     run: async (config, context) => {
@@ -135,9 +136,9 @@ export const steps: Task[] = [
   },
 ];
 
-export async function runTasks(
-  tasks: Task[],
-  config: ResolvedConfig,
+export async function runTasks<T extends ResolvedConfig>(
+  tasks: Task<T>[],
+  config: T,
   ctx: InternalReleaseContext,
 ) {
   for (const task of tasks) {

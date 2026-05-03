@@ -44,11 +44,8 @@ export type ResolvedConfig = MergeDeep<
   }
 >;
 
-export type Task = {
-  run: (
-    config: ResolvedConfig,
-    ctx: InternalReleaseContext,
-  ) => void | Promise<void>;
+export type Task<T = ResolvedConfig> = {
+  run: (config: T, ctx: InternalReleaseContext) => void | Promise<void>;
   effect?: string | ((ctx: InternalReleaseContext) => string) | false;
 };
 export type LogLevelName = keyof typeof LogLevels;
