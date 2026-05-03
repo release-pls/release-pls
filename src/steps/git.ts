@@ -43,7 +43,7 @@ export async function gitPush(
   config: ResolvedConfig,
   context: InternalReleaseContext,
 ) {
-  // 根据选项来判断是否要输出在控制台上
+  const isDebug = config.verbose === "debug";
 
   try {
     await x(
@@ -51,6 +51,9 @@ export async function gitPush(
       ["push", "origin", "HEAD", `refs/tags/${context.git.tagName}`],
       {
         throwOnError: true,
+        nodeOptions: {
+          stdio: isDebug ? "inherit" : "pipe",
+        },
       },
     );
   } catch {

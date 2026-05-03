@@ -29,6 +29,28 @@ const hookTask = (
   effect: `run hook ${hook}`,
 });
 
+const changelogTasks: Task[] = [
+  hookTask(HOOKS.BEFORE_CHANGELOG),
+  {
+    run: async (config, context) => {
+      await genChangelog(config, context);
+    },
+  },
+  hookTask(HOOKS.AFTER_CHANGELOG),
+  {
+    run: async (config, context) => {
+      await runInDryRun(config, () => {
+        logger.box(context.git.changelog);
+      });
+    },
+  },
+  {
+    run: async (config, context) => {
+      await confirmChangelog(context);
+    },
+  },
+];
+
 const gitTasks: Task[] = [
   hookTask(HOOKS.BEFORE_GIT),
   hookTask(HOOKS.BEFORE_GIT_ADD),
@@ -79,27 +101,13 @@ export const steps: Task[] = [
   },
   hookTask(HOOKS.AFTER_SELECT_TAG),
   // 变更日志
-  hookTask(HOOKS.BEFORE_CHANGELOG, (config) => hasChangelog(config)),
   {
-    run: async (config, context) => {
+    run: async (config, ctx) => {
       if (!hasChangelog(config)) return;
-      await genChangelog(config, context);
+      await runTasks(changelogTasks, config, ctx);
     },
   },
-  hookTask(HOOKS.AFTER_CHANGELOG, (config) => hasChangelog(config)),
-  {
-    run: async (config, context) => {
-      await runInDryRun(config, () => {
-        logger.box(context.git.changelog);
-      });
-    },
-  },
-  {
-    run: async (config, context) => {
-      if (!hasChangelog(config)) return;
-      await confirmChangelog(context);
-    },
-  },
+
   // bump
   hookTask(HOOKS.BEFORE_BUMP),
   {
@@ -117,6 +125,7 @@ export const steps: Task[] = [
   {
     run: async (config, ctx) => {
       const spinner = createSpinner("Releasing…\n").start();
+
       try {
         await runTasks(gitTasks, config, ctx);
       } finally {

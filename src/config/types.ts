@@ -40,7 +40,7 @@ export type ResolvedConfig = MergeDeep<
     };
     hooks: NormalizedHooks;
     config?: string;
-    verbose: string;
+    verbose: LogLevelName;
   }
 >;
 
