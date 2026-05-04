@@ -47,7 +47,12 @@ export const defu = createDefu((obj, key, value) => {
 });
 
 export async function gitChangeset() {
-  await x("git", ["status", "--porcelain"], {});
+  await x("git", ["status", "--porcelain"], {
+    throwOnError: true,
+    nodeOptions: {
+      stdio: "inherit",
+    },
+  });
 }
 
 export async function isGitRepo() {

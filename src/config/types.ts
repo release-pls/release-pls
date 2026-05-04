@@ -49,3 +49,5 @@ export type Task<T = ResolvedConfig> = {
   effect?: string | ((ctx: InternalReleaseContext) => string) | false;
 };
 export type LogLevelName = keyof typeof LogLevels;
+
+export type FlagName = string | readonly string[];

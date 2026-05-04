@@ -4,7 +4,12 @@ import type {
   InternalReleaseContext,
   ResolvedConfig,
 } from "../config/types.ts";
-import { GitCommitError, GitPushError, GitTagError } from "../errors.ts";
+import {
+  DebugError,
+  GitCommitError,
+  GitPushError,
+  GitTagError,
+} from "../errors.ts";
 
 export async function gitAdd() {
   await x("git", ["add", "."], {
@@ -56,7 +61,10 @@ export async function gitPush(
         },
       },
     );
-  } catch {
+  } catch (err) {
+    if (isDebug) {
+      throw new DebugError(err);
+    }
     throw new GitPushError();
   }
 }

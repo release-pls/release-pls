@@ -6,7 +6,7 @@ import lt from "semver/functions/lt.js";
 import pkg from "../package.json" with { type: "json" };
 import type { InlineConfig } from "./config/types.ts";
 import { NAME } from "./constants.ts";
-import { CancelledError } from "./errors.ts";
+import { CancelledError, DebugError } from "./errors.ts";
 import { getCommandRawArgs, logger } from "./utils/index.js";
 
 if (lt(process.version, "22.18.0")) {
@@ -55,6 +55,8 @@ try {
 
   if (err instanceof CancelledError) {
     logger.warn(err.message);
+  } else if (err instanceof DebugError) {
+    //..
   } else if (err instanceof Error) {
     logger.error(err.message);
   } else {

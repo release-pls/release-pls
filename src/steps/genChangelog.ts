@@ -1,7 +1,7 @@
 import mri from "mri";
 import { createSpinner } from "nanospinner";
 
-import type { InternalReleaseContext } from "../config/types.ts";
+import type { FlagName, InternalReleaseContext } from "../config/types.ts";
 import { OUTPUT_FLAGS } from "../constants.ts";
 import { GenerateChangelogError } from "../errors.ts";
 import { runGitCliff } from "../git-cliff.ts";
@@ -48,8 +48,6 @@ export async function genChangelog(
 function renderArgs(args: string[], context: InternalReleaseContext) {
   return args.map((v) => renderTemplate(v, context));
 }
-
-type FlagName = string | readonly string[];
 
 function isStringArray(x: FlagName): x is readonly string[] {
   return Array.isArray(x);

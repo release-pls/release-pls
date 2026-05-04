@@ -125,12 +125,14 @@ export const steps: Task[] = [
   },
   {
     run: async (config, ctx) => {
-      const spinner = createSpinner("Releasing…\n").start();
+      const isDebug = config.verbose === "debug";
+
+      const spinner = isDebug ? null : createSpinner("Releasing…").start();
 
       try {
         await runTasks(gitTasks, config, ctx);
       } finally {
-        spinner.stop();
+        spinner?.stop();
       }
     },
   },
