@@ -56,8 +56,8 @@ const gitTasks: Task[] = [
   hookTask(HOOKS.BEFORE_GIT),
   hookTask(HOOKS.BEFORE_GIT_ADD),
   {
-    run: async () => {
-      await gitAdd();
+    run: async (config) => {
+      await gitAdd(config);
     },
     effect: "git add",
   },
@@ -73,7 +73,7 @@ const gitTasks: Task[] = [
   hookTask(HOOKS.BEFORE_GIT_TAG),
   {
     run: async (config, context) => {
-      await gitTag(context);
+      await gitTag(config, context);
     },
     effect: "git tag",
   },
