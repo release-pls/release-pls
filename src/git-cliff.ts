@@ -35,7 +35,7 @@ export async function runGitCliff(
 
   const { stdout } = await x(bin, args, {
     nodeOptions: {
-      stdio: "inherit",
+      stdio: "pipe",
       ...spawnOptions,
     },
     throwOnError: true,

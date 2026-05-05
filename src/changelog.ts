@@ -17,7 +17,7 @@ export async function changelog(
 
   config.git.changelog.args = args;
 
-  // 开始调用git-cliff
+  // 开始调用git-cliff,并直接把git-cliff的信息打印在终端上
   await runGitCliff(config.git.changelog, {
     stdio: "inherit",
   });
