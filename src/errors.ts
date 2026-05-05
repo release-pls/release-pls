@@ -92,8 +92,11 @@ export class GitBranchError extends BaseError {
   }
 }
 
-export class DebugError extends BaseError {
-  constructor(public cause?: unknown) {
-    super("Debug error (wrapped)");
+export class ExitSignal extends Error {
+  constructor(
+    public code: number = 0,
+    public cause?: unknown,
+  ) {
+    super(`Exit with code ${code}`);
   }
 }

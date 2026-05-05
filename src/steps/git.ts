@@ -1,18 +1,19 @@
-import { x } from "tinyexec";
+import { NonZeroExitError, x } from "tinyexec";
 
 import type {
   InternalReleaseContext,
   ResolvedConfig,
 } from "../config/types.ts";
+import { LogLevels } from "../constants.ts";
 import {
-  DebugError,
+  ExitSignal,
   GitCommitError,
   GitPushError,
   GitTagError,
 } from "../errors.ts";
 
 export async function gitAdd(config: ResolvedConfig) {
-  const isDebug = config.verbose === "debug";
+  const isDebug = config.verbose >= LogLevels.debug;
   await x("git", ["add", "."], {
     throwOnError: true,
     nodeOptions: {
@@ -25,7 +26,7 @@ export async function gitCommit(
   config: ResolvedConfig,
   context: InternalReleaseContext,
 ) {
-  const isDebug = config.verbose === "debug";
+  const isDebug = config.verbose >= LogLevels.debug;
   try {
     await x(
       "git",
@@ -37,9 +38,9 @@ export async function gitCommit(
         },
       },
     );
-  } catch (err) {
-    if (isDebug) {
-      throw new DebugError(err);
+  } catch (err: unknown) {
+    if (isDebug && err instanceof NonZeroExitError) {
+      throw new ExitSignal(err.exitCode, err);
     }
     throw new GitCommitError();
   }
@@ -49,7 +50,7 @@ export async function gitTag(
   config: ResolvedConfig,
   context: InternalReleaseContext,
 ) {
-  const isDebug = config.verbose === "debug";
+  const isDebug = config.verbose >= LogLevels.debug;
   try {
     await x("git", ["tag", "-f", context.git.tagName], {
       throwOnError: true,
@@ -58,8 +59,8 @@ export async function gitTag(
       },
     });
   } catch (err) {
-    if (isDebug) {
-      throw new DebugError(err);
+    if (isDebug && err instanceof NonZeroExitError) {
+      throw new ExitSignal(err.exitCode, err);
     }
     throw new GitTagError();
   }
@@ -69,7 +70,7 @@ export async function gitPush(
   config: ResolvedConfig,
   context: InternalReleaseContext,
 ) {
-  const isDebug = config.verbose === "debug";
+  const isDebug = config.verbose >= LogLevels.debug;
 
   try {
     await x(
@@ -83,8 +84,8 @@ export async function gitPush(
       },
     );
   } catch (err) {
-    if (isDebug) {
-      throw new DebugError(err);
+    if (isDebug && err instanceof NonZeroExitError) {
+      throw new ExitSignal(err.exitCode, err);
     }
     throw new GitPushError();
   }

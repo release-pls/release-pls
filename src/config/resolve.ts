@@ -1,6 +1,6 @@
 import { parse } from "valibot";
 
-import { NAME } from "../constants.ts";
+import { LogLevels, NAME } from "../constants.ts";
 import type {
   ChangelogOptions,
   Hook,
@@ -14,7 +14,7 @@ import defaultsConfig from "./defaults.ts";
 import { loadConfig } from "./index.ts";
 import type {
   InlineConfig,
-  LogLevelName,
+  LogLevel,
   NormalizedHooks,
   ResolvedConfig,
 } from "./types.ts";
@@ -47,10 +47,10 @@ export async function resolveConfig(
   return resolved;
 }
 
-function normalizeVerbose(v: boolean[]): LogLevelName {
-  if (v.length >= 2) return "debug";
-  if (v.length === 1) return "verbose";
-  return "default";
+export function normalizeVerbose(v: boolean[]): LogLevel {
+  if (v.length >= 2) return LogLevels.debug;
+  if (v.length === 1) return LogLevels.hooks;
+  return LogLevels.default;
 }
 
 function normalizeHooks(hooks: Hooks = {}) {

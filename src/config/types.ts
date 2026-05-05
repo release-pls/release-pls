@@ -40,7 +40,7 @@ export type ResolvedConfig = MergeDeep<
     };
     hooks: NormalizedHooks;
     config?: string;
-    verbose: LogLevelName;
+    verbose: LogLevel;
   }
 >;
 
@@ -48,6 +48,7 @@ export type Task<T = ResolvedConfig> = {
   run: (config: T, ctx: InternalReleaseContext) => void | Promise<void>;
   effect?: string | ((ctx: InternalReleaseContext) => string) | false;
 };
-export type LogLevelName = keyof typeof LogLevels;
+
+export type LogLevel = (typeof LogLevels)[keyof typeof LogLevels];
 
 export type FlagName = string | readonly string[];

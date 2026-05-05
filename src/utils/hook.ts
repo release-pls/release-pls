@@ -2,16 +2,24 @@ import ansis from "ansis";
 import { Listr } from "listr2";
 import { x } from "tinyexec";
 
-import type { HookItems, InternalReleaseContext } from "../config/types.ts";
+import type {
+  HookItems,
+  InternalReleaseContext,
+  ResolvedConfig,
+} from "../config/types.ts";
+import { LogLevels } from "../constants.ts";
 import type { HookFn } from "../options.ts";
 import { renderTemplate } from "./index.ts";
 
 export async function runHook(
+  config: ResolvedConfig,
+  context: InternalReleaseContext,
   hookName: string,
   hooks?: HookItems,
-  context?: InternalReleaseContext,
 ) {
-  if (!hooks?.length || !context) return;
+  if (!hooks?.length) return;
+
+  const isHooksOutput = config.verbose >= LogLevels.hooks;
 
   const tasks = new Listr(
     {
@@ -30,14 +38,16 @@ export async function runHook(
                   await x(cmd, [], {
                     nodeOptions: {
                       shell: true,
-                      stdio: "pipe",
+                      stdio: isHooksOutput ? "inherit" : "pipe",
                     },
                   });
                 } else {
                   const { initialRef: _, ...publicCtx } = context;
 
                   // 静默函数输出
-                  await muteStdout(() => hook(publicCtx));
+                  await muteStdout(() => hook(publicCtx), {
+                    mute: isHooksOutput ? false : true,
+                  });
                 }
               },
             };
@@ -49,6 +59,7 @@ export async function runHook(
     },
     {
       concurrent: false,
+      renderer: isHooksOutput ? "verbose" : "default",
     },
   );
 
@@ -73,7 +84,14 @@ function getHookTitle(
   return `fn:<anonymous-${index + 1}>`;
 }
 
-async function muteStdout<T>(fn: () => Promise<T> | T): Promise<T> {
+async function muteStdout<T>(
+  fn: () => Promise<T> | T,
+  options: { mute?: boolean } = { mute: true },
+): Promise<T> {
+  if (!options.mute) {
+    return fn();
+  }
+
   const stdoutWrite = process.stdout.write.bind(process.stdout);
   const stderrWrite = process.stderr.write.bind(process.stderr);
 

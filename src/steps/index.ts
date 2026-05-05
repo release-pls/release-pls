@@ -5,7 +5,7 @@ import type {
   ResolvedConfig,
   Task,
 } from "../config/types.ts";
-import { HOOKS } from "../constants.ts";
+import { HOOKS, LogLevels } from "../constants.ts";
 import type { HookEvent } from "../options.ts";
 import { runHook } from "../utils/hook.ts";
 import { effect, hasChangelog, logger, runInDryRun } from "../utils/index.ts";
@@ -19,15 +19,11 @@ import { selectVersion } from "./selectVersion.ts";
 import { summary } from "./summary.ts";
 export * from "./createContext.ts";
 
-const hookTask = (
-  hook: HookEvent,
-  condition?: (config: ResolvedConfig, ctx: InternalReleaseContext) => boolean,
-): Task => ({
+const hookTask = (hookName: HookEvent): Task => ({
   run: async (config, ctx) => {
-    if (condition && !condition(config, ctx)) return;
-    await runHook(hook, config.hooks?.[hook], ctx);
+    await runHook(config, ctx, hookName, config.hooks?.[hookName]);
   },
-  effect: `run hook ${hook}`,
+  effect: `run hook ${hookName}`,
 });
 
 const changelogTasks: Task<ResolvedConfigWithChangelog>[] = [
@@ -125,7 +121,7 @@ export const steps: Task[] = [
   },
   {
     run: async (config, ctx) => {
-      const isDebug = config.verbose === "debug";
+      const isDebug = config.verbose >= LogLevels.debug;
 
       const spinner = isDebug ? null : createSpinner("Releasing…").start();
 

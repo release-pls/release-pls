@@ -4,7 +4,7 @@ export const NAME = "smarty-release";
 export const OUTPUT_FLAGS = ["o", "output"] as const;
 export const LogLevels = {
   default: 0,
-  verbose: 1,
+  hooks: 1,
   debug: 2,
 } as const;
 export const HOOKS = {
