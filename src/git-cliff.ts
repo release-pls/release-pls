@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { createRequire } from "node:module";
-import { dirname, join,resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { arch as getArch, platform as getPlatform } from "os";
@@ -35,7 +35,7 @@ export async function runGitCliff(
 
   const { stdout } = await x(bin, args, {
     nodeOptions: {
-      stdio: "pipe",
+      stdio: "inherit",
       ...spawnOptions,
     },
     throwOnError: true,
