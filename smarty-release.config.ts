@@ -1,4 +1,4 @@
-import { defineConfig } from "./src/config.ts";
+import { defineConfig } from "./src/options";
 
 export default defineConfig({
   increments: ["patch", "minor", "major"],
