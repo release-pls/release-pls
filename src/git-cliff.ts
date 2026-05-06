@@ -12,6 +12,7 @@ import { x } from "tinyexec";
 
 import type { NormalizedChangelogOptions } from "./config/types.ts";
 import { NAME } from "./constants.ts";
+import { removeFlag } from "./utils/argv.ts";
 import { outputFile, remove } from "./utils/fs.ts";
 import { defu } from "./utils/index.ts";
 
@@ -25,7 +26,7 @@ export async function runGitCliff(
   options: NormalizedChangelogOptions,
   spawnOptions: SpawnOptions = {},
 ) {
-  const args = filterArgs(options.args);
+  const args = removeFlag(options.args, ["c", "config"]);
 
   const tmpConfigFile = await resolveTemplateConfig(options);
 
@@ -43,24 +44,6 @@ export async function runGitCliff(
 
   await remove(cacheDir);
   return stdout;
-}
-
-function filterArgs(args: string[]): string[] {
-  const skip = new Set(["--config", "-c"]);
-
-  const result: string[] = [];
-
-  for (const arg of args) {
-    if (arg.startsWith("--config=")) continue;
-
-    if (skip.has(arg)) {
-      continue;
-    }
-
-    result.push(arg);
-  }
-
-  return result;
 }
 
 async function resolveTemplateConfig(options: NormalizedChangelogOptions) {

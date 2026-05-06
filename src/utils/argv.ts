@@ -1,60 +1,74 @@
-export function hasFlag(argv: string[], name: string): boolean {
-  const prefix = name.length === 1 ? `-${name}` : `--${name}`;
+export function hasFlag(argv: string[], name: string | string[]): boolean {
+  const prefixes = normalizePrefixes(name);
 
   for (const arg of argv) {
     if (arg === "--") break;
 
-    // 完整匹配（无值 flag）
-    if (arg === prefix) {
-      return true;
-    }
-
-    // 带值写法：--foo=bar
-    if (arg.startsWith(`${prefix}=`)) {
-      return true;
+    for (const prefix of prefixes) {
+      if (arg === prefix) return true;
+      if (arg.startsWith(`${prefix}=`)) return true;
     }
   }
 
   return false;
 }
 
-export function getFlagValue(argv: string[], name: string) {
-  const prefix = name.length === 1 ? `-${name}` : `--${name}`;
+export function getFlagValue(argv: string[], name: string | string[]) {
+  const prefixes = normalizePrefixes(name);
 
   for (const [index, arg] of argv.entries()) {
     if (arg === "--") break;
 
-    if (arg === prefix) {
-      return argv[index + 1];
-    }
+    for (const prefix of prefixes) {
+      if (arg === prefix) {
+        return argv[index + 1];
+      }
 
-    if (arg.startsWith(`${prefix}=`)) {
-      return arg.split("=")[1];
+      if (arg.startsWith(`${prefix}=`)) {
+        return arg.slice(prefix.length + 1);
+      }
     }
   }
 }
 
-export function removeFlag(argv: string[], name: string) {
-  const prefix = name.length === 1 ? `-${name}` : `--${name}`;
+export function removeFlag(argv: string[], name: string | string[]) {
+  const prefixes = normalizePrefixes(name);
   const result: string[] = [];
 
-  for (const [index, arg] of argv.entries()) {
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i]!; //避免ts的过渡谨慎
+
     if (arg === "--") {
-      // 后面全部原样保留
-      result.push(...argv.slice(index));
+      result.push(...argv.slice(i));
       break;
     }
 
-    if (arg === prefix) {
-      continue;
+    let matched = false;
+
+    for (const prefix of prefixes) {
+      if (arg === prefix) {
+        // 跳过 value
+        i++;
+        matched = true;
+        break;
+      }
+
+      if (arg.startsWith(`${prefix}=`)) {
+        matched = true;
+        break;
+      }
     }
 
-    if (arg.startsWith(`${prefix}=`)) {
-      continue;
+    if (!matched) {
+      result.push(arg);
     }
-
-    result.push(arg);
   }
 
   return result;
+}
+
+function normalizePrefixes(name: string | string[]) {
+  const names = Array.isArray(name) ? name : [name];
+
+  return names.map((n) => (n.length === 1 ? `-${n}` : `--${n}`));
 }

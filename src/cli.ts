@@ -7,8 +7,7 @@ import pkg from "../package.json" with { type: "json" };
 import type { InlineConfig } from "./config/types.ts";
 import { NAME } from "./constants.ts";
 import { CancelledError, ExitSignal } from "./errors.ts";
-import { getFlagValue, hasFlag, removeFlag } from "./utils/argv.ts";
-import { getCommandRawArgs, logger } from "./utils/index.js";
+import { logger } from "./utils/index.js";
 
 if (lt(process.version, "22.18.0")) {
   logger.warn(
@@ -42,22 +41,12 @@ cli
     allowUnknownOptions: true,
   })
   .option("-c, --config <path>", "Path to the config file")
-  .action(async () => {
-    // const { changelog } = await import("./changelog.ts");
+  .action(async (range, options: InlineConfig) => {
+    const { changelog } = await import("./changelog.ts");
 
     const args = cli.rawArgs.slice(3);
 
-    console.log(args);
-    let rew;
-    // rew = getFlagValue(args, "output");
-    rew = removeFlag(args, "output");
-    rew = removeFlag(args, "o");
-    //  rew = hasFlag(args, "output");
-
-    console.log(rew);
-    // console.log(rew2);
-
-    // await changelog(options, args);
+    await changelog(options, args);
   });
 
 try {

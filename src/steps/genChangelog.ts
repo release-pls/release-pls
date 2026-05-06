@@ -1,9 +1,10 @@
 import { createSpinner } from "nanospinner";
 
-import type { FlagName, InternalReleaseContext } from "../config/types.ts";
+import type { InternalReleaseContext } from "../config/types.ts";
 import { OUTPUT_FLAGS } from "../constants.ts";
 import { GenerateChangelogError } from "../errors.ts";
 import { runGitCliff } from "../git-cliff.ts";
+import { getFlagValue, hasFlag, removeFlag } from "../utils/argv.ts";
 import { renderTemplate, runInDryRun } from "../utils/index.js";
 import type { ResolvedConfigWithChangelog } from "../utils/type.ts";
 
@@ -25,12 +26,13 @@ export async function genChangelog(
 
     const stdout = await runGitCliff(config.git.changelog);
 
-    const cli = parseArgv(config.git.changelog.args);
-
-    const hasOutput = cli.hasFlag(OUTPUT_FLAGS);
+    const hasOutput = hasFlag(config.git.changelog.args, OUTPUT_FLAGS);
 
     if (hasOutput) {
-      const changelogFile = cli.getFlagValue<string | boolean>(OUTPUT_FLAGS);
+      const changelogFile = getFlagValue(
+        config.git.changelog.args,
+        OUTPUT_FLAGS,
+      );
 
       context.git.changelog =
         typeof changelogFile === "string" ? changelogFile : "CHANGELOG.md";
