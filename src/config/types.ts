@@ -50,5 +50,3 @@ export type Task<T = ResolvedConfig> = {
 };
 
 export type LogLevel = (typeof LogLevels)[keyof typeof LogLevels];
-
-export type FlagName = string | readonly string[];

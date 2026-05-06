@@ -154,15 +154,6 @@ export async function getGitCurrentBranch(): Promise<string> {
   return stdout.trim();
 }
 
-export function getCommandRawArgs(
-  rawArgs: string[],
-  commandNames: string[],
-): string[] {
-  const idx = rawArgs.findIndex((arg) => commandNames.includes(arg));
-
-  return idx === -1 ? [] : rawArgs.slice(idx + 1);
-}
-
 export function dryRunLog(desc: string) {
   logger.info(ansis.yellow(`[dry-run] would ${desc}`));
 }

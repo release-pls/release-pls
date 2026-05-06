@@ -7,6 +7,7 @@ import pkg from "../package.json" with { type: "json" };
 import type { InlineConfig } from "./config/types.ts";
 import { NAME } from "./constants.ts";
 import { CancelledError, ExitSignal } from "./errors.ts";
+import { getFlagValue, hasFlag, removeFlag } from "./utils/argv.ts";
 import { getCommandRawArgs, logger } from "./utils/index.js";
 
 if (lt(process.version, "22.18.0")) {
@@ -37,14 +38,26 @@ cli
   });
 
 cli
-  .command("changelog", "Options to pass to git-cliff", {
+  .command("changelog [RANGE]", "Options to pass to git-cliff", {
     allowUnknownOptions: true,
   })
   .option("-c, --config <path>", "Path to the config file")
-  .action(async (input, options: InlineConfig) => {
-    const { changelog } = await import("./changelog.ts");
-    const args = getCommandRawArgs(cli.rawArgs, ["changelog"]);
-    await changelog(options, args);
+  .action(async () => {
+    // const { changelog } = await import("./changelog.ts");
+
+    const args = cli.rawArgs.slice(3);
+
+    console.log(args);
+    let rew;
+    // rew = getFlagValue(args, "output");
+    rew = removeFlag(args, "output");
+    rew = removeFlag(args, "o");
+    //  rew = hasFlag(args, "output");
+
+    console.log(rew);
+    // console.log(rew2);
+
+    // await changelog(options, args);
   });
 
 try {
