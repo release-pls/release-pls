@@ -1,52 +1,31 @@
-import type { MergeDeep, OverrideProperties, RequiredDeep } from "type-fest";
+import type * as v from "valibot";
 
-import type { LogLevels } from "../constants.ts";
+import type { ReleaseContext } from "../options.ts";
+import type { Enabled } from "../utils/type.ts";
 import type {
-  ChangelogOptions,
-  Hook,
-  HookEvent,
-  ReleaseContext,
-  UserConfig,
-} from "../options.ts";
+  hookEvent,
+  HookValueSchema,
+  inlineConfigSchema,
+} from "./configSchema.ts";
 
 export interface InternalReleaseContext extends ReleaseContext {
   initialRef: string;
 }
 
-export interface InlineConfig extends UserConfig {
-  config?: string;
-  dryRun?: boolean;
-  verbose?: boolean[];
-  cwd?: string;
-}
+export type InlineConfig = v.InferInput<typeof inlineConfigSchema>;
 
-export type HookItems = Extract<Hook, unknown[]>;
-export type NormalizedHooks = Partial<Record<HookEvent, HookItems>>;
+export type ResolvedConfig = v.InferOutput<typeof inlineConfigSchema>;
 
-export type NormalizedChangelogOptions = Required<
-  OverrideProperties<
-    ChangelogOptions,
-    {
-      args: string[];
-    }
-  >
->;
+export type ChangelogOptions = Enabled<ResolvedConfig["git"]["changelog"]>;
 
-export type ResolvedConfig = MergeDeep<
-  RequiredDeep<InlineConfig>,
-  {
-    git: {
-      changelog: false | NormalizedChangelogOptions;
-    };
-    hooks: NormalizedHooks;
-    config?: string;
-    verbose: LogLevel;
-  }
->;
+export type HookFn = (context: ReleaseContext) => void | Promise<void>;
+export type HookEvent = v.InferInput<typeof hookEvent>;
+export type HookEventValue = v.InferOutput<typeof HookValueSchema>;
 
-export type Task<T = ResolvedConfig> = {
-  run: (config: T, ctx: InternalReleaseContext) => void | Promise<void>;
+export type Task = {
+  run: (
+    config: ResolvedConfig,
+    ctx: InternalReleaseContext,
+  ) => void | Promise<void>;
   effect?: string | ((ctx: InternalReleaseContext) => string) | false;
 };
-
-export type LogLevel = (typeof LogLevels)[keyof typeof LogLevels];

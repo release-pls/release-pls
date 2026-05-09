@@ -3,7 +3,6 @@ src/changelog.ts内容如下：
 import { resolveConfig } from "./config/resolve.ts";
 import type { InlineConfig, ResolvedConfig } from "./config/types.ts";
 import { runGitCliff } from "./git-cliff.ts";
-import { checkGitRepoStatus } from "./steps/checkGitRepoStatus.ts";
 import { logger } from "./utils/index.ts";
 
 export async function changelog(
@@ -13,9 +12,6 @@ export async function changelog(
   // 处理参数
   const config: ResolvedConfig = await resolveConfig(inlineConfig);
 
-  // 验证git仓库状态
-  await checkGitRepoStatus(config);
-
   if (config.git.changelog === false) {
     logger.warn("Changelog generation is disabled.");
     return;
@@ -23,8 +19,10 @@ export async function changelog(
 
   config.git.changelog.args = args;
 
-  // 开始调用git-cliff
-  await runGitCliff(config.git.changelog);
+  // 开始调用git-cliff,并直接把git-cliff的信息打印在终端上
+  await runGitCliff(config.git.changelog, {
+    stdio: "inherit",
+  });
 }
 
 
@@ -38,8 +36,8 @@ import lt from "semver/functions/lt.js";
 import pkg from "../package.json" with { type: "json" };
 import type { InlineConfig } from "./config/types.ts";
 import { NAME } from "./constants.ts";
-import { CancelledError } from "./errors.ts";
-import { getCommandRawArgs,logger } from "./utils/index.js";
+import { CancelledError, ExitSignal } from "./errors.ts";
+import { logger } from "./utils/index.js";
 
 if (lt(process.version, "22.18.0")) {
   logger.warn(
@@ -48,27 +46,36 @@ if (lt(process.version, "22.18.0")) {
 }
 
 const cli = cac(NAME);
-cli.help().version(pkg.version);
+cli.help().version(pkg.version, "-V, --version");
 
 cli
   .command("[run]", "Start release process")
   .alias("run")
   .option("-d, --dry-run", "Simulate release without applying changes.")
   .option("-c, --config <path>", "Path to the config file")
-  .option("-V, --verbose", "Verbose output (user hooks output)")
+  .option(
+    "-v, --verbose",
+    "Increase logging verbosity (default: user hooks output)",
+    {
+      type: [],
+    },
+  )
   .action(async (run, options: InlineConfig) => {
     const { release } = await import("./release.ts");
+
     await release(options);
   });
 
 cli
-  .command("changelog", "Options to pass to git-cliff", {
+  .command("changelog [RANGE]", "Options to pass to git-cliff", {
     allowUnknownOptions: true,
   })
   .option("-c, --config <path>", "Path to the config file")
-  .action(async (input, options: InlineConfig) => {
+  .action(async (range, options: InlineConfig) => {
     const { changelog } = await import("./changelog.ts");
-    const args = getCommandRawArgs(cli.rawArgs, ["changelog"]);
+
+    const args = cli.rawArgs.slice(3);
+
     await changelog(options, args);
   });
 
@@ -80,19 +87,24 @@ try {
 
   if (err instanceof CancelledError) {
     logger.warn(err.message);
+  } else if (err instanceof ExitSignal) {
+    process.exit(err.code);
   } else if (err instanceof Error) {
     logger.error(err.message);
   } else {
     logger.error(`Unknown error`, err);
   }
-
   process.exit(1);
 }
 
 
 src/config/configSchema.ts内容如下：
 
+import type { ReleaseType } from "semver";
 import * as v from "valibot";
+
+import { NAME } from "../constants.ts";
+import type { HookFn } from "./types.ts";
 
 /**
  * 基础类型
@@ -100,22 +112,9 @@ import * as v from "valibot";
 const stringOrStringArray = v.union([v.string(), v.array(v.string())]);
 
 /**
- * DistTag
- */
-const distTag = v.union([
-  v.literal("latest"),
-  v.literal("next"),
-  v.literal("beta"),
-  v.literal("alpha"),
-  v.literal("canary"),
-  v.literal("rc"),
-  v.string(), // 自定义
-]);
-
-/**
  * HookEvent
  */
-const hookEvent = v.union([
+export const hookEvent = v.union([
   v.literal("before:init"),
   v.literal("before:selectVersion"),
   v.literal("after:selectVersion"),
@@ -141,14 +140,18 @@ const hookEvent = v.union([
 /**
  * Hook
  */
-const hookItem = v.union([
-  v.string(),
-  v.function(), // (ctx) => any
-]);
 
-const hook = v.union([hookItem, v.array(hookItem)]);
+// 运行时仅校验类型
+const HookItemSchema = v.custom<string | HookFn>(
+  (input) => typeof input === "string" || typeof input === "function",
+);
 
-const hooks = v.optional(v.record(hookEvent, hook));
+export const HookValueSchema = v.pipe(
+  v.union([HookItemSchema, v.array(HookItemSchema)]),
+  v.transform((value) => (Array.isArray(value) ? value : [value])),
+);
+
+const hooks = v.optional(v.record(hookEvent, HookValueSchema), {});
 
 /**
  * RemoteProviderConfig
@@ -232,21 +235,42 @@ const changelogConfig = v.object({
     v.object({
       header: v.optional(v.string()),
       body: v.optional(v.string()),
-      footer: v.optional(v.string()),
+      footer: v.optional(v.string(), `<!-- powered by ${NAME} -->`),
       trim: v.optional(v.boolean()),
     }),
+    {},
   ),
   git: v.optional(changelogGitConfig),
   remote,
 });
 
+export type ChangelogTemplate =
+  | "azure-devops-keepachangelog"
+  | "cocogitto"
+  | "detailed"
+  | "github-keepachangelog"
+  | "github"
+  | "keepachangelog"
+  | "minimal"
+  | "scoped"
+  | "scopesorted"
+  | "statistics"
+  | "unconventional"
+  | (string & {}); // 任意字符串，兼容远程链接
+
 /**
  * ChangelogOptions
  */
 const changelogOptions = v.object({
-  args: v.optional(stringOrStringArray),
-  template: v.optional(v.string()), // 允许自定义 template
-  config: v.optional(changelogConfig),
+  args: v.pipe(
+    v.optional(stringOrStringArray, "-o --tag ${version}"),
+    v.transform((v) => (Array.isArray(v) ? v : v.trim().split(/\s+/))),
+  ),
+  template: v.optional(
+    v.custom<ChangelogTemplate>((input) => typeof input === "string"),
+    "github",
+  ),
+  config: v.optional(changelogConfig, {}),
 });
 
 /**
@@ -254,7 +278,7 @@ const changelogOptions = v.object({
  */
 const git = v.optional(
   v.object({
-    changelog: v.optional(v.union([v.literal(false), changelogOptions])),
+    changelog: v.optional(v.union([v.literal(false), changelogOptions]), {}),
     requireBranch: v.optional(
       v.union([
         v.string(),
@@ -262,57 +286,52 @@ const git = v.optional(
         v.instance(RegExp),
         v.literal(false),
       ]),
+      false,
     ),
-    commitMessage: v.optional(v.string()),
-    commitArgs: v.optional(v.array(v.string())),
-    tagName: v.optional(v.string()),
+    commitMessage: v.optional(v.string(), "release: v${version}"),
+    commitArgs: v.optional(v.array(v.string()), ["--no-verify", "-s"]),
+    tagName: v.optional(v.string(), "v${version}"),
   }),
+  {},
 );
+
+const IncrementSchema = v.custom<ReleaseType>(
+  (input) => typeof input === "string",
+);
+
+type DistTag =
+  | "latest"
+  | "next"
+  | "beta"
+  | "alpha"
+  | "canary"
+  | "rc"
+  | (string & {});
+
+const DistTagSchema = v.custom<DistTag>((input) => typeof input === "string");
+
+export const userConfigSchema = v.object({
+  increments: v.optional(v.array(IncrementSchema), ["patch", "minor", "major"]),
+  tags: v.optional(v.array(DistTagSchema), ["latest", "next"]),
+  git,
+  hooks,
+});
 
 /**
  * InlineConfig（最终）
  */
-export const inlineConfigSchema = v.object({
-  increments: v.optional(v.array(v.string())), // semver.ReleaseType 简化
-  tags: v.optional(v.array(distTag)),
-  git,
-  hooks,
-  cwd: v.optional(v.string()),
-  config: v.optional(v.string()),
-  dryRun: v.optional(v.boolean()),
-});
-
-
-src/config/defaults.ts内容如下：
-
-import { NAME } from "../constants.ts";
-import type { InlineConfig } from "./types.ts";
-
-const defaults = {
-  increments: ["patch", "minor", "major"],
-  tags: ["latest", "next"],
-  git: {
-    // 变更日志
-    changelog: {
-      args: "-o --tag ${version}",
-      template: "github",
-      config: {
-        changelog: {
-          footer: `<!-- powered by ${NAME} -->`,
-        },
-      },
-    },
-    requireBranch: ["main", "master"],
-    commitMessage: "release: v${version}",
-    commitArgs: ["--no-verify", "-s"],
-    tagName: "v${version}",
-  },
-  hooks: {},
-  cwd: process.cwd(),
-  dryRun: false,
-} satisfies InlineConfig;
-
-export default defaults;
+export const inlineConfigSchema = v.intersect([
+  userConfigSchema,
+  v.object({
+    cwd: v.optional(v.string()),
+    config: v.optional(v.string()),
+    dryRun: v.optional(v.boolean(), false),
+    verbose: v.pipe(
+      v.optional(v.array(v.boolean()), []),
+      v.transform((value) => value.length),
+    ),
+  }),
+]);
 
 
 src/config/index.ts内容如下：
@@ -366,20 +385,11 @@ src/config/resolve.ts内容如下：
 import { parse } from "valibot";
 
 import { NAME } from "../constants.ts";
-import type {
-  ChangelogOptions,
-  Hook,
-  HookEvent,
-  Hooks,
-  UserConfig,
-} from "../options.ts";
+import type { UserConfig } from "../options.ts";
 import { defu } from "../utils/index.ts";
 import { inlineConfigSchema } from "./configSchema.ts";
-import defaultsConfig from "./defaults.ts";
 import { loadConfig } from "./index.ts";
-import type { InlineConfig, NormalizedHooks, ResolvedConfig } from "./types.ts";
-
-type Args = NonNullable<ChangelogOptions["args"]>;
+import type { InlineConfig, ResolvedConfig } from "./types.ts";
 
 export async function resolveConfig(
   inlineConfig: InlineConfig = {},
@@ -388,145 +398,84 @@ export async function resolveConfig(
   const fileConfig = await loadConfig<UserConfig>(NAME, inlineConfig.config);
 
   // 合并选项
-  const merged = defu(inlineConfig, fileConfig, defaultsConfig);
+  const merged = defu(inlineConfig, fileConfig);
 
   // 验证参数合法性
-  parse(inlineConfigSchema, merged);
-
-  // 参数归一化处理
-  const resolved: ResolvedConfig = {
-    ...merged,
-    git: {
-      ...merged.git,
-      changelog: normalizeChangelog(merged.git.changelog),
-    },
-    hooks: normalizeHooks(merged.hooks),
-  };
-
-  return resolved;
-}
-
-function normalizeHooks(hooks: Hooks = {}) {
-  const result: NormalizedHooks = {};
-
-  for (const [event, hook] of Object.entries(hooks) as [HookEvent, Hook][]) {
-    result[event] = normalizeHookValue(hook);
-  }
-
-  return result;
-}
-
-function normalizeHookValue(hook?: Hook) {
-  if (!hook) return [];
-  return Array.isArray(hook) ? hook : [hook];
-}
-
-function normalizeChangelog(changelog: false | Required<ChangelogOptions>) {
-  if (changelog === false) return false;
-
-  return {
-    ...changelog,
-    args: normalizeArgs(changelog.args),
-  };
-}
-
-function normalizeArgs(args: Args): string[] {
-  if (Array.isArray(args)) return args;
-  return args.trim().split(/\s+/);
+  return parse(inlineConfigSchema, merged);
 }
 
 
 src/config/types.ts内容如下：
 
-import type { MergeDeep, OverrideProperties, RequiredDeep } from "type-fest";
+import type { Simplify } from "type-fest";
+import type * as v from "valibot";
 
+import type { ReleaseContext } from "../options.ts";
 import type {
-  ChangelogOptions,
-  Hook,
-  HookEvent,
-  ReleaseContext,
-  UserConfig,
-} from "../options.ts";
+  hookEvent,
+  HookValueSchema,
+  inlineConfigSchema,
+} from "./configSchema.ts";
 
 export interface InternalReleaseContext extends ReleaseContext {
   initialRef: string;
 }
 
-export interface InlineConfig extends UserConfig {
-  config?: string;
-  dryRun?: boolean;
-  cwd?: string;
-}
+export type InlineConfig = v.InferInput<typeof inlineConfigSchema>;
 
-export type HookItems = Extract<Hook, unknown[]>;
-export type NormalizedHooks = Partial<Record<HookEvent, HookItems>>;
+export type ResolvedConfig = v.InferOutput<typeof inlineConfigSchema>;
 
-export type NormalizedChangelogOptions = Required<
-  OverrideProperties<
-    ChangelogOptions,
-    {
-      args: string[];
-    }
-  >
->;
+export type HookFn = (context: ReleaseContext) => void | Promise<void>;
+export type HookEvent = v.InferInput<typeof hookEvent>;
+export type HookEventValue = v.InferOutput<typeof HookValueSchema>;
 
-export type ResolvedConfig = MergeDeep<
-  RequiredDeep<InlineConfig>,
-  {
-    git: {
-      changelog: false | NormalizedChangelogOptions;
+export type ConfigWithChangelog = Simplify<
+  Omit<ResolvedConfig, "git"> & {
+    git: Omit<ResolvedConfig["git"], "changelog"> & {
+      changelog: Exclude<ResolvedConfig["git"]["changelog"], false>;
     };
-    hooks: NormalizedHooks;
-    config?: string;
   }
 >;
-export interface Step {
-  name: string;
-  run?: () => Promise<void>;
-  children?: Step[];
-  skip?: (ctx: InternalReleaseContext) => boolean;
 
-  effect?: boolean; //  是否是副作用
-}
+export type Task<T = ResolvedConfig> = {
+  run: (config: T, ctx: InternalReleaseContext) => void | Promise<void>;
+  effect?: string | ((ctx: InternalReleaseContext) => string) | false;
+};
 
 
 src/constants.ts内容如下：
 
+import type { HookEvent } from "./config/types.ts";
+
 export const NAME = "smarty-release";
-export const OUTPUT_FLAGS = ["o", "output"] as const;
-export const dryRunPrefix = "[dry-run] would ";
+export const OUTPUT_FLAGS = ["o", "output"];
+export const LogLevels = {
+  default: 0,
+  hooks: 1,
+  debug: 2,
+};
 export const HOOKS = {
   BEFORE_INIT: "before:init",
-
   BEFORE_SELECT_VERSION: "before:selectVersion",
   AFTER_SELECT_VERSION: "after:selectVersion",
-
   BEFORE_SELECT_TAG: "before:selectTag",
   AFTER_SELECT_TAG: "after:selectTag",
-
   BEFORE_CHANGELOG: "before:changelog",
   AFTER_CHANGELOG: "after:changelog",
-
   BEFORE_BUMP: "before:bump",
   AFTER_BUMP: "after:bump",
-
   BEFORE_GIT: "before:git",
   AFTER_GIT: "after:git",
-
   BEFORE_GIT_ADD: "before:git.add",
   AFTER_GIT_ADD: "after:git.add",
-
   BEFORE_GIT_COMMIT: "before:git.commit",
   AFTER_GIT_COMMIT: "after:git.commit",
-
   BEFORE_GIT_TAG: "before:git.tag",
   AFTER_GIT_TAG: "after:git.tag",
-
   BEFORE_GIT_PUSH: "before:git.push",
   AFTER_GIT_PUSH: "after:git.push",
-
   AFTER_RELEASE: "after:release",
-} as const;
+} as const satisfies Record<string, HookEvent>;
 
 
 src/errors.ts内容如下：
@@ -625,6 +574,15 @@ export class GitBranchError extends BaseError {
   }
 }
 
+export class ExitSignal extends Error {
+  constructor(
+    public code: number = 0,
+    public cause?: unknown,
+  ) {
+    super(`Exit with code ${code}`);
+  }
+}
+
 
 src/git-cliff.ts内容如下：
 
@@ -633,15 +591,16 @@ import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { createRequire } from "node:module";
-import { dirname, join,resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { arch as getArch, platform as getPlatform } from "os";
 import { parse, stringify } from "smol-toml";
 import { x } from "tinyexec";
 
-import type { NormalizedChangelogOptions } from "./config/types.ts";
+import type { ConfigWithChangelog } from "./config/types.ts";
 import { NAME } from "./constants.ts";
+import { removeFlag } from "./utils/argv.ts";
 import { outputFile, remove } from "./utils/fs.ts";
 import { defu } from "./utils/index.ts";
 
@@ -650,12 +609,14 @@ const require = createRequire(import.meta.url);
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const cacheDir = resolve(process.cwd(), "node_modules", `.${NAME}`);
 
+type GitCliffOptions = ConfigWithChangelog["git"]["changelog"];
+
 // 生成变更日志
 export async function runGitCliff(
-  options: NormalizedChangelogOptions,
+  options: GitCliffOptions,
   spawnOptions: SpawnOptions = {},
 ) {
-  const args = filterArgs(options.args);
+  const args = removeFlag(options.args, ["c", "config"]);
 
   const tmpConfigFile = await resolveTemplateConfig(options);
 
@@ -675,25 +636,7 @@ export async function runGitCliff(
   return stdout;
 }
 
-function filterArgs(args: string[]): string[] {
-  const skip = new Set(["--config", "-c"]);
-
-  const result: string[] = [];
-
-  for (const arg of args) {
-    if (arg.startsWith("--config=")) continue;
-
-    if (skip.has(arg)) {
-      continue;
-    }
-
-    result.push(arg);
-  }
-
-  return result;
-}
-
-async function resolveTemplateConfig(options: NormalizedChangelogOptions) {
+async function resolveTemplateConfig(options: GitCliffOptions) {
   const defaultTplPath = resolve(
     __dirname,
     "..",
@@ -748,133 +691,16 @@ export * from "./options.ts";
 src/options.ts内容如下：
 
 import type { ConsolaInstance } from "consola";
-import type { ReleaseType } from "semver";
+import type * as v from "valibot";
 
-export type ChangelogTemplate =
-  | "azure-devops-keepachangelog"
-  | "cocogitto"
-  | "detailed"
-  | "github-keepachangelog"
-  | "github"
-  | "keepachangelog"
-  | "minimal"
-  | "scoped"
-  | "scopesorted"
-  | "statistics"
-  | "unconventional"
-  | (string & {}); // 任意字符串，兼容远程链接
+import type { userConfigSchema } from "./config/configSchema.ts";
 
-type RemoteProviderConfig = {
-  owner?: string;
-  repo?: string;
-  token?: string;
-};
+export type UserConfig = v.InferInput<typeof userConfigSchema>;
 
-// commit parser 类型
-export interface CommitParser {
-  message: string; // 正则或匹配字符串
-  group?: string; // 分组
-  default_scope?: string;
-  skip?: boolean; //默认跳过
-}
-
-export interface LinkParsers {
-  pattern?: string;
-  href?: string;
-}
-
-// git 配置
-export interface ChangelogGitConfig {
-  conventional_commits?: boolean;
-  filter_unconventional?: boolean;
-  require_conventional?: boolean;
-  split_commits?: boolean;
-  commit_parsers?: CommitParser[];
-  protect_breaking_commits?: false;
-  filter_commits?: boolean;
-  fail_on_unmatched_commit?: boolean;
-  tag_pattern?: string;
-  skip_tags?: string;
-  ignore_tags?: string;
-  topo_order?: boolean;
-  topo_order_commits?: boolean;
-  sort_commits?: "oldest" | "newest";
-  link_parsers?: LinkParsers[];
-  limit_commits?: number;
-  recurse_submodules?: boolean;
-  include_paths?: string[];
-  exclude_paths?: string[];
-}
-
-// changelog 内容配置
-export interface ChangelogContentConfig {
-  header?: string;
-  body?: string;
-  footer?: string;
-  trim?: boolean;
-}
-
-export interface ChangelogBumpConfig {
-  bump_type?: string;
-  features_always_bump_minor?: boolean;
-  breaking_always_bump_major?: boolean;
-  custom_major_increment_regex?: string;
-  custom_minor_increment_regex?: string;
-  initial_tag?: string;
-}
-
-// remote 配置
-export interface ChangelogRemoteConfig {
-  github?: RemoteProviderConfig;
-  azure_devops?: RemoteProviderConfig;
-  gitlab?: RemoteProviderConfig;
-  gitea?: RemoteProviderConfig;
-  bitbucket?: RemoteProviderConfig;
-}
-
-export interface ChangelogConfig {
-  bump?: ChangelogBumpConfig;
-  changelog?: ChangelogContentConfig;
-  git?: ChangelogGitConfig;
-  remote?: ChangelogRemoteConfig;
-}
-
-export type ChangelogOptions = {
-  args?: string | string[];
-  template?: ChangelogTemplate;
-  config?: ChangelogConfig;
-};
-
-type DistTag =
-  | "latest"
-  | "next"
-  | "beta"
-  | "alpha"
-  | "canary"
-  | "rc"
-  | (string & {}); // 允许自定义
-
-export type HookEvent =
-  | "before:init"
-  | "before:selectVersion"
-  | "after:selectVersion"
-  | "after:bump"
-  | "after:release"
-  | "before:selectTag"
-  | "after:selectTag"
-  | "before:changelog"
-  | "after:changelog"
-  | "before:bump"
-  | "before:git"
-  | "before:git.add"
-  | "after:git.add"
-  | "before:git.commit"
-  | "after:git.commit"
-  | "before:git.tag"
-  | "after:git.tag"
-  | "before:git.push"
-  | "after:git.push"
-  | "after:git";
+/**
+ * 用于 `smarty-release` 配置文件：e.g.`smarty-release.config.*`
+ */
+export const defineConfig = (config: UserConfig) => config;
 
 /**
  * CLI运行时产生的一些配置
@@ -902,287 +728,13 @@ export interface ReleaseContext {
   cancel(message?: string): never;
 }
 
-export type HookFn = (context: ReleaseContext) => void | Promise<void>;
-
-export type Hook = HookFn | string | (HookFn | string)[];
-
-export type Hooks = Partial<Record<HookEvent, Hook>>;
-
-/**
- * Options for smarty-release.
- */
-export interface UserConfig {
-  /**
-   * 控制版本号递增类型（符合语义化版本 SemVer）
-   *
-   * @example
-   *  patch → 修复 bug（1.0.0 → 1.0.1）
-   *  minor → 新功能（1.0.0 → 1.1.0）
-   *  major → 破坏性更新（1.0.0 → 2.0.0）
-   */
-  increments?: ReleaseType[];
-
-  /**
-   * 发布时使用的 npm dist-tag
-   */
-  tags?: DistTag[];
-
-  /** 控制 Git 操作行为 */
-  git?: {
-    /** 变更日志是否生成 */
-    changelog?: false | ChangelogOptions;
-    requireBranch?: string | string[] | RegExp | false;
-    commitMessage?: string;
-    commitArgs?: string[];
-    tagName?: string;
-  };
-
-  /** 生命周期钩子 */
-  hooks?: Hooks;
-}
-
-/**
- * 用于 `smarty-release` 配置文件：e.g.`smarty-release.config.*`
- */
-export const defineConfig = (config: UserConfig) => config;
-
-
-src/release copy.ts内容如下：
-
-import { createSpinner } from "nanospinner";
-
-import { resolveConfig } from "./config/resolve.ts";
-import type { InlineConfig, ResolvedConfig } from "./config/types.ts";
-import { HOOKS } from "./constants.ts";
-import { checkGitRepoStatus } from "./steps/checkGitRepoStatus.ts";
-import {
-  bump,
-  confirmChangelog,
-  createContext,
-  genChangelog,
-  gitAdd,
-  gitCommit,
-  gitPush,
-  gitTag,
-  selectTag,
-  selectVersion,
-  summary,
-} from "./steps/index.ts";
-import { runHook } from "./utils/hook.ts";
-import { effect, gitReset } from "./utils/index.ts";
-import { withTimer } from "./utils/timer.ts";
-import { hasChangelog } from "./utils/type.ts";
-
-export async function release(inlineConfig: InlineConfig = {}) {
-  // 处理参数
-  const config: ResolvedConfig = await resolveConfig(inlineConfig);
-  // 验证git仓库状态
-  await checkGitRepoStatus(config);
-  const context = await createContext(config);
-
-  try {
-    await withTimer(async () => {
-      // 流程开始
-
-      await effect(config, `run hook ${HOOKS.BEFORE_INIT}`, async () => {
-        await runHook(
-          HOOKS.BEFORE_INIT,
-          config.hooks?.[HOOKS.BEFORE_INIT],
-          context,
-        );
-      });
-
-      // 选择版本
-      await effect(
-        config,
-        `run hook ${HOOKS.BEFORE_SELECT_VERSION}`,
-        async () => {
-          await runHook(
-            HOOKS.BEFORE_SELECT_VERSION,
-            config.hooks?.[HOOKS.BEFORE_SELECT_VERSION],
-            context,
-          );
-        },
-      );
-
-      await selectVersion(config, context);
-
-      await effect(
-        config,
-        `run hook ${HOOKS.AFTER_SELECT_VERSION}`,
-        async () => {
-          await runHook(
-            HOOKS.AFTER_SELECT_VERSION,
-            config.hooks?.[HOOKS.AFTER_SELECT_VERSION],
-            context,
-          );
-        },
-      );
-
-      // 选择tag
-      await effect(config, `run hook ${HOOKS.BEFORE_SELECT_TAG}`, async () => {
-        await runHook(
-          HOOKS.BEFORE_SELECT_TAG,
-          config.hooks?.[HOOKS.BEFORE_SELECT_TAG],
-          context,
-        );
-      });
-
-      await selectTag(config, context);
-
-      await effect(config, `run hook ${HOOKS.AFTER_SELECT_TAG}`, async () => {
-        await runHook(
-          HOOKS.AFTER_SELECT_TAG,
-          config.hooks?.[HOOKS.AFTER_SELECT_TAG],
-          context,
-        );
-      });
-
-      // 变更日志
-      if (hasChangelog(config)) {
-        await effect(config, `run hook ${HOOKS.BEFORE_CHANGELOG}`, async () => {
-          await runHook(
-            HOOKS.BEFORE_CHANGELOG,
-            config.hooks?.[HOOKS.BEFORE_CHANGELOG],
-            context,
-          );
-        });
-
-        await genChangelog(config, context);
-
-        await effect(config, `run hook ${HOOKS.AFTER_CHANGELOG}`, async () => {
-          await runHook(
-            HOOKS.AFTER_CHANGELOG,
-            config.hooks?.[HOOKS.AFTER_CHANGELOG],
-            context,
-          );
-        });
-        await confirmChangelog(context);
-      }
-
-      // bump
-      await effect(config, `run hook ${HOOKS.BEFORE_BUMP}`, async () => {
-        await runHook(
-          HOOKS.BEFORE_BUMP,
-          config.hooks?.[HOOKS.BEFORE_BUMP],
-          context,
-        );
-      });
-
-      await effect(
-        config,
-        `bump version: ${context.latestVersion} → ${context.version}`,
-        async () => {
-          await bump(config, context);
-        },
-      );
-
-      await effect(config, `run hook ${HOOKS.AFTER_BUMP}`, async () => {
-        await runHook(
-          HOOKS.AFTER_BUMP,
-          config.hooks?.[HOOKS.AFTER_BUMP],
-          context,
-        );
-      });
-
-      // 总结阶段
-      await summary(context);
-
-      await effect(config, `run git operations and related hooks`, async () => {
-        const spinner = createSpinner("Releasing…").start();
-
-        // git系列
-        await runHook(
-          HOOKS.BEFORE_GIT,
-          config.hooks?.[HOOKS.BEFORE_GIT],
-          context,
-        );
-        // git 具体步骤
-        await runHook(
-          HOOKS.BEFORE_GIT_ADD,
-          config.hooks?.[HOOKS.BEFORE_GIT_ADD],
-          context,
-        );
-        await gitAdd();
-        await runHook(
-          HOOKS.AFTER_GIT_ADD,
-          config.hooks?.[HOOKS.AFTER_GIT_ADD],
-          context,
-        );
-        await runHook(
-          HOOKS.BEFORE_GIT_COMMIT,
-          config.hooks?.[HOOKS.BEFORE_GIT_COMMIT],
-          context,
-        );
-        await gitCommit(config, context);
-        await runHook(
-          HOOKS.AFTER_GIT_COMMIT,
-          config.hooks?.[HOOKS.AFTER_GIT_COMMIT],
-          context,
-        );
-
-        await runHook(
-          HOOKS.BEFORE_GIT_TAG,
-          config.hooks?.[HOOKS.BEFORE_GIT_TAG],
-          context,
-        );
-        await gitTag(context);
-        await runHook(
-          HOOKS.AFTER_GIT_TAG,
-          config.hooks?.[HOOKS.AFTER_GIT_TAG],
-          context,
-        );
-
-        await runHook(
-          HOOKS.BEFORE_GIT_PUSH,
-          config.hooks?.[HOOKS.BEFORE_GIT_PUSH],
-          context,
-        );
-        await gitPush(context);
-        await runHook(
-          HOOKS.AFTER_GIT_PUSH,
-          config.hooks?.[HOOKS.AFTER_GIT_PUSH],
-          context,
-        );
-
-        await runHook(
-          HOOKS.AFTER_GIT,
-          config.hooks?.[HOOKS.AFTER_GIT],
-          context,
-        );
-
-        // 流程走完之后
-        await runHook(
-          HOOKS.AFTER_RELEASE,
-          config.hooks?.[HOOKS.AFTER_RELEASE],
-          context,
-        );
-        spinner.stop();
-      });
-    });
-  } catch (err) {
-    await effect(config, `run git reset`, async () => {
-      await gitReset(context); // 回滚
-    });
-
-    throw err;
-  }
-}
-
 
 src/release.ts内容如下：
 
 import { resolveConfig } from "./config/resolve.ts";
-import type {
-  InlineConfig,
-  InternalReleaseContext,
-  ResolvedConfig,
-  Step,
-} from "./config/types.ts";
+import type { InlineConfig, ResolvedConfig } from "./config/types.ts";
 import { checkGitRepoStatus } from "./steps/checkGitRepoStatus.ts";
-import { pipeline } from "./steps/config.ts";
-import { createContext } from "./steps/index.ts";
-import { runHook } from "./utils/hook.ts";
+import { createContext, runTasks, steps } from "./steps/index.ts";
 import { effect, gitReset } from "./utils/index.ts";
 import { withTimer } from "./utils/timer.ts";
 
@@ -1195,53 +747,13 @@ export async function release(inlineConfig: InlineConfig = {}) {
 
   try {
     await withTimer(async () => {
-      await runPipeline(pipeline, config, context);
+      await runTasks(steps, config, context);
     });
   } catch (err) {
     await effect(config, `run git reset`, async () => {
       await gitReset(context); // 回滚
     });
-
     throw err;
-  }
-}
-
-async function runPipeline(
-  steps: Step[],
-  config: ResolvedConfig,
-  context: InternalReleaseContext,
-) {
-  for (const step of steps) {
-    if (step.skip?.(context)) continue;
-
-    const runner = async () => {
-      await runHook(
-        `before:${step.name}`,
-        config.hooks?.[`before:${step.name}`],
-        context,
-      );
-
-      if (step.run) {
-        await step.run();
-      }
-
-      if (step.children) {
-        await runPipeline(step.children, config, context);
-      }
-
-      await runHook(
-        `after:${step.name}`,
-        config.hooks?.[`after:${step.name}`],
-        context,
-      );
-    };
-
-    // ⭐ 关键：只对副作用 step 使用 effect
-    if (step.effect) {
-      await effect(config, step.name, runner);
-    } else {
-      await runner();
-    }
   }
 }
 
@@ -1311,30 +823,6 @@ export async function checkGitRepoStatus(config: ResolvedConfig) {
   const remoteUrl = await getGitRemoteUrl();
   if (!remoteUrl) throw new GitRemoteNotFoundError();
 }
-
-
-src/steps/config.ts内容如下：
-
-import type { Step } from "../config/types.ts";
-
-export const pipeline: Step[] = [
-  {
-    name: "init",
-    run: () => Promise.resolve(), // 只是 hook
-  },
-
-  // {
-  //   name: "select_version",
-  //   run: async () => {
-  //     console.log("w");
-  //     return Promise.resolve();
-  //   },
-  // },
-  // {
-  //   name: "git",
-  //   effect: true,
-  // },
-];
 
 
 src/steps/confirmChangelog.ts内容如下：
@@ -1464,23 +952,23 @@ function createEmptyObject<T>() {
 
 src/steps/genChangelog.ts内容如下：
 
-import mri from "mri";
 import { createSpinner } from "nanospinner";
 
 import type { InternalReleaseContext } from "../config/types.ts";
+import type { ConfigWithChangelog } from "../config/types.ts";
 import { OUTPUT_FLAGS } from "../constants.ts";
 import { GenerateChangelogError } from "../errors.ts";
 import { runGitCliff } from "../git-cliff.ts";
-import { logger, renderTemplate, runInDryRun } from "../utils/index.js";
-import type { ResolvedConfigWithChangelog } from "../utils/type.ts";
+import { getFlagValue, hasFlag, removeFlag } from "../utils/argv.ts";
+import { renderTemplate, runInDryRun } from "../utils/index.js";
 
 export async function genChangelog(
-  config: ResolvedConfigWithChangelog,
+  config: ConfigWithChangelog,
   context: InternalReleaseContext,
 ) {
-  config.git.changelog.args = renderArgs(config.git.changelog.args, context);
-  const spinner = createSpinner("Generating changelog, please wait…").start();
   try {
+    config.git.changelog.args = renderArgs(config.git.changelog.args, context);
+
     // dry-run模式下永远都把输出选项都移除掉
     await runInDryRun(config, () => {
       config.git.changelog.args = removeFlag(
@@ -1488,15 +976,17 @@ export async function genChangelog(
         OUTPUT_FLAGS,
       );
     });
+    const spinner = createSpinner("Generating changelog, please wait…").start();
 
     const stdout = await runGitCliff(config.git.changelog);
 
-    const cli = parseArgv(config.git.changelog.args);
-
-    const hasOutput = cli.hasFlag(OUTPUT_FLAGS);
+    const hasOutput = hasFlag(config.git.changelog.args, OUTPUT_FLAGS);
 
     if (hasOutput) {
-      const changelogFile = cli.getFlagValue<string | boolean>(OUTPUT_FLAGS);
+      const changelogFile = getFlagValue(
+        config.git.changelog.args,
+        OUTPUT_FLAGS,
+      );
 
       context.git.changelog =
         typeof changelogFile === "string" ? changelogFile : "CHANGELOG.md";
@@ -1504,96 +994,40 @@ export async function genChangelog(
       context.git.changelog = stdout;
     }
 
-    // dryRun模式下直接打印在控制台上
-    await runInDryRun(config, `generate changelog`, () => {
-      logger.box(context.git.changelog);
-    });
+    spinner.stop();
   } catch {
     throw new GenerateChangelogError();
   }
-  spinner.stop();
 }
 
 function renderArgs(args: string[], context: InternalReleaseContext) {
   return args.map((v) => renderTemplate(v, context));
 }
 
-type FlagName = string | readonly string[];
-
-function isStringArray(x: FlagName): x is readonly string[] {
-  return Array.isArray(x);
-}
-
-function normalizeNames(name: FlagName): readonly string[] {
-  return isStringArray(name) ? name : [name];
-}
-
-function parseArgv(argv: string[]) {
-  const args = mri(argv);
-
-  return {
-    hasFlag(name: FlagName): boolean {
-      const names = normalizeNames(name);
-      return names.some((n) => args[n] !== undefined);
-    },
-
-    getFlagValue<T = unknown>(name: FlagName): T | undefined {
-      const names = normalizeNames(name);
-
-      for (const n of names) {
-        if (args[n] !== undefined) {
-          return args[n] as T;
-        }
-      }
-    },
-  };
-}
-
-function removeFlag(argv: string[], name: FlagName): string[] {
-  const names = normalizeNames(name);
-
-  const isFlag = (arg: string) =>
-    names.some(
-      (n) => arg === `-${n}` || arg === `--${n}` || arg.startsWith(`--${n}=`),
-    );
-
-  const result: string[] = [];
-
-  for (let i = 0; i < argv.length; i++) {
-    const arg = argv[i]!;
-
-    if (isFlag(arg)) {
-      // 如果是 --xxx value 或 -x value
-      if (!arg.includes("=")) {
-        const next = argv[i + 1];
-        if (next && !next.startsWith("-")) {
-          i++; // 跳过 value
-        }
-      }
-      continue;
-    }
-
-    result.push(arg);
-  }
-
-  return result;
-}
-
 
 src/steps/git.ts内容如下：
 
-import { x } from "tinyexec";
+import { NonZeroExitError, x } from "tinyexec";
 
 import type {
   InternalReleaseContext,
   ResolvedConfig,
 } from "../config/types.ts";
-import { GitCommitError, GitPushError, GitTagError } from "../errors.ts";
-import { renderTemplate } from "../utils/index.ts";
+import { LogLevels } from "../constants.ts";
+import {
+  ExitSignal,
+  GitCommitError,
+  GitPushError,
+  GitTagError,
+} from "../errors.ts";
 
-export async function gitAdd() {
+export async function gitAdd(config: ResolvedConfig) {
+  const isDebug = config.verbose >= LogLevels.debug;
   await x("git", ["add", "."], {
     throwOnError: true,
+    nodeOptions: {
+      stdio: isDebug ? "inherit" : "pipe",
+    },
   });
 }
 
@@ -1601,37 +1035,67 @@ export async function gitCommit(
   config: ResolvedConfig,
   context: InternalReleaseContext,
 ) {
-  const message = renderTemplate(config.git.commitMessage, context);
-
+  const isDebug = config.verbose >= LogLevels.debug;
   try {
-    await x("git", ["commit", ...config.git.commitArgs, "-m", message], {
-      throwOnError: true,
-    });
-  } catch {
+    await x(
+      "git",
+      ["commit", ...config.git.commitArgs, "-m", context.git.commitMessage],
+      {
+        throwOnError: true,
+        nodeOptions: {
+          stdio: isDebug ? "inherit" : "pipe",
+        },
+      },
+    );
+  } catch (err: unknown) {
+    if (isDebug && err instanceof NonZeroExitError) {
+      throw new ExitSignal(err.exitCode, err);
+    }
     throw new GitCommitError();
   }
 }
 
-export async function gitTag(context: InternalReleaseContext) {
+export async function gitTag(
+  config: ResolvedConfig,
+  context: InternalReleaseContext,
+) {
+  const isDebug = config.verbose >= LogLevels.debug;
   try {
     await x("git", ["tag", "-f", context.git.tagName], {
       throwOnError: true,
+      nodeOptions: {
+        stdio: isDebug ? "inherit" : "pipe",
+      },
     });
-  } catch {
+  } catch (err) {
+    if (isDebug && err instanceof NonZeroExitError) {
+      throw new ExitSignal(err.exitCode, err);
+    }
     throw new GitTagError();
   }
 }
 
-export async function gitPush(context: InternalReleaseContext) {
+export async function gitPush(
+  config: ResolvedConfig,
+  context: InternalReleaseContext,
+) {
+  const isDebug = config.verbose >= LogLevels.debug;
+
   try {
     await x(
       "git",
       ["push", "origin", "HEAD", `refs/tags/${context.git.tagName}`],
       {
         throwOnError: true,
+        nodeOptions: {
+          stdio: isDebug ? "inherit" : "pipe",
+        },
       },
     );
-  } catch {
+  } catch (err) {
+    if (isDebug && err instanceof NonZeroExitError) {
+      throw new ExitSignal(err.exitCode, err);
+    }
     throw new GitPushError();
   }
 }
@@ -1639,14 +1103,158 @@ export async function gitPush(context: InternalReleaseContext) {
 
 src/steps/index.ts内容如下：
 
-export * from "./bump.ts";
-export * from "./confirmChangelog.ts";
+import { createSpinner } from "nanospinner";
+
+import type {
+  InternalReleaseContext,
+  ResolvedConfig,
+  Task,
+} from "../config/types.ts";
+import type { ConfigWithChangelog, HookEvent } from "../config/types.ts";
+import { HOOKS, LogLevels } from "../constants.ts";
+import { runHook } from "../utils/hook.ts";
+import { effect, hasChangelog, logger, runInDryRun } from "../utils/index.ts";
+import { bump } from "./bump.ts";
+import { confirmChangelog } from "./confirmChangelog.ts";
+import { genChangelog } from "./genChangelog.ts";
+import { gitAdd, gitCommit, gitPush, gitTag } from "./git.ts";
+import { selectTag } from "./selectTag.ts";
+import { selectVersion } from "./selectVersion.ts";
+import { summary } from "./summary.ts";
 export * from "./createContext.ts";
-export * from "./genChangelog.ts";
-export * from "./git.ts";
-export * from "./selectTag.ts";
-export * from "./selectVersion.ts";
-export * from "./summary.ts";
+
+const hookTask = (hookName: HookEvent): Task => ({
+  run: async (config, ctx) => {
+    await runHook(config, ctx, hookName, config.hooks?.[hookName]);
+  },
+  effect: `run hook ${hookName}`,
+});
+
+const changelogTasks: Task<ConfigWithChangelog>[] = [
+  hookTask(HOOKS.BEFORE_CHANGELOG),
+  {
+    run: async (config, context) => {
+      await genChangelog(config, context);
+    },
+  },
+  hookTask(HOOKS.AFTER_CHANGELOG),
+  {
+    run: async (config, context) => {
+      await runInDryRun(config, () => {
+        logger.box(context.git.changelog);
+      });
+    },
+  },
+  {
+    run: async (config, context) => {
+      await confirmChangelog(context);
+    },
+  },
+];
+
+const gitTasks: Task[] = [
+  hookTask(HOOKS.BEFORE_GIT),
+  hookTask(HOOKS.BEFORE_GIT_ADD),
+  {
+    run: async (config) => {
+      await gitAdd(config);
+    },
+    effect: "git add",
+  },
+  hookTask(HOOKS.AFTER_GIT_ADD),
+  hookTask(HOOKS.BEFORE_GIT_COMMIT),
+  {
+    run: async (config, context) => {
+      await gitCommit(config, context);
+    },
+    effect: "git commit",
+  },
+  hookTask(HOOKS.AFTER_GIT_COMMIT),
+  hookTask(HOOKS.BEFORE_GIT_TAG),
+  {
+    run: async (config, context) => {
+      await gitTag(config, context);
+    },
+    effect: "git tag",
+  },
+  hookTask(HOOKS.AFTER_GIT_TAG),
+  hookTask(HOOKS.BEFORE_GIT_PUSH),
+  {
+    run: async (config, context) => {
+      await gitPush(config, context);
+    },
+    effect: "git push",
+  },
+  hookTask(HOOKS.AFTER_GIT_PUSH),
+  hookTask(HOOKS.AFTER_GIT),
+];
+
+export const steps: Task[] = [
+  hookTask(HOOKS.BEFORE_INIT),
+  hookTask(HOOKS.BEFORE_SELECT_VERSION),
+  {
+    run: selectVersion,
+  },
+  hookTask(HOOKS.AFTER_SELECT_VERSION),
+  hookTask(HOOKS.BEFORE_SELECT_TAG),
+  {
+    run: selectTag,
+  },
+  hookTask(HOOKS.AFTER_SELECT_TAG),
+  // 变更日志
+  {
+    run: async (config, ctx) => {
+      if (!hasChangelog(config)) return;
+      await runTasks(changelogTasks, config, ctx);
+    },
+  },
+
+  // bump
+  hookTask(HOOKS.BEFORE_BUMP),
+  {
+    run: async (config, context) => {
+      await bump(config, context);
+    },
+    effect: (ctx) => `bump version: ${ctx.latestVersion} → ${ctx.version}`,
+  },
+  hookTask(HOOKS.AFTER_BUMP),
+  {
+    run: async (config, context) => {
+      await summary(context);
+    },
+  },
+  {
+    run: async (config, ctx) => {
+      const isDebug = config.verbose >= LogLevels.debug;
+
+      const spinner = isDebug ? null : createSpinner("Releasing…").start();
+
+      try {
+        await runTasks(gitTasks, config, ctx);
+      } finally {
+        spinner?.stop();
+      }
+    },
+  },
+];
+
+export async function runTasks<T extends ResolvedConfig>(
+  tasks: Task<T>[],
+  config: T,
+  ctx: InternalReleaseContext,
+) {
+  for (const task of tasks) {
+    if (!task.effect) {
+      await task.run(config, ctx);
+      continue;
+    }
+
+    const desc =
+      typeof task.effect === "function" ? task.effect(ctx) : task.effect;
+
+    await effect(config, desc, () => task.run(config, ctx));
+  }
+}
 
 
 src/steps/selectTag.ts内容如下：
@@ -1825,6 +1433,84 @@ function renderKeyValue(data: Record<string, string>) {
 }
 
 
+src/utils/argv.ts内容如下：
+
+export function hasFlag(argv: string[], name: string | string[]): boolean {
+  const prefixes = normalizePrefixes(name);
+
+  for (const arg of argv) {
+    if (arg === "--") break;
+
+    for (const prefix of prefixes) {
+      if (arg === prefix) return true;
+      if (arg.startsWith(`${prefix}=`)) return true;
+    }
+  }
+
+  return false;
+}
+
+export function getFlagValue(argv: string[], name: string | string[]) {
+  const prefixes = normalizePrefixes(name);
+
+  for (const [index, arg] of argv.entries()) {
+    if (arg === "--") break;
+
+    for (const prefix of prefixes) {
+      if (arg === prefix) {
+        return argv[index + 1];
+      }
+
+      if (arg.startsWith(`${prefix}=`)) {
+        return arg.slice(prefix.length + 1);
+      }
+    }
+  }
+}
+
+export function removeFlag(argv: string[], name: string | string[]) {
+  const prefixes = normalizePrefixes(name);
+  const result: string[] = [];
+
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i]!; //避免ts的过渡谨慎
+
+    if (arg === "--") {
+      result.push(...argv.slice(i));
+      break;
+    }
+
+    let matched = false;
+
+    for (const prefix of prefixes) {
+      if (arg === prefix) {
+        // 跳过 value
+        i++;
+        matched = true;
+        break;
+      }
+
+      if (arg.startsWith(`${prefix}=`)) {
+        matched = true;
+        break;
+      }
+    }
+
+    if (!matched) {
+      result.push(arg);
+    }
+  }
+
+  return result;
+}
+
+function normalizePrefixes(name: string | string[]) {
+  const names = Array.isArray(name) ? name : [name];
+
+  return names.map((n) => (n.length === 1 ? `-${n}` : `--${n}`));
+}
+
+
 src/utils/fs.ts内容如下：
 
 import { promises as fs } from "node:fs";
@@ -1848,27 +1534,36 @@ export const pathExists = async (path: string): Promise<boolean> => {
 
 src/utils/hook.ts内容如下：
 
+import ansis from "ansis";
 import { Listr } from "listr2";
 import { x } from "tinyexec";
 
-import type { HookItems, InternalReleaseContext } from "../config/types.ts";
-import type { HookFn } from "../options.ts";
+import type {
+  HookEventValue,
+  HookFn,
+  InternalReleaseContext,
+  ResolvedConfig,
+} from "../config/types.ts";
+import { LogLevels } from "../constants.ts";
 import { renderTemplate } from "./index.ts";
 
 export async function runHook(
+  config: ResolvedConfig,
+  context: InternalReleaseContext,
   hookName: string,
-  hooks?: HookItems,
-  context?: InternalReleaseContext,
+  hooks?: HookEventValue,
 ) {
-  if (!hooks?.length || !context) return;
+  if (!hooks?.length) return;
+
+  const isHooksOutput = config.verbose >= LogLevels.hooks;
 
   const tasks = new Listr(
     {
-      title: `${hookName} (${hooks.length} hooks)`,
+      title: ansis.dim(`${hookName} (${hooks.length} hooks)`),
       task: () =>
         new Listr(
           hooks.map((hook, index) => {
-            const title = getHookTitle(hook, index, context);
+            const title = ansis.dim(getHookTitle(hook, index, context));
 
             return {
               title,
@@ -1879,14 +1574,16 @@ export async function runHook(
                   await x(cmd, [], {
                     nodeOptions: {
                       shell: true,
-                      stdio: "pipe",
+                      stdio: isHooksOutput ? "inherit" : "pipe",
                     },
                   });
                 } else {
                   const { initialRef: _, ...publicCtx } = context;
 
                   // 静默函数输出
-                  await muteStdout(() => hook(publicCtx));
+                  await muteStdout(() => hook(publicCtx), {
+                    mute: isHooksOutput ? false : true,
+                  });
                 }
               },
             };
@@ -1898,6 +1595,7 @@ export async function runHook(
     },
     {
       concurrent: false,
+      renderer: isHooksOutput ? "verbose" : "default",
     },
   );
 
@@ -1922,7 +1620,14 @@ function getHookTitle(
   return `fn:<anonymous-${index + 1}>`;
 }
 
-async function muteStdout<T>(fn: () => Promise<T> | T): Promise<T> {
+async function muteStdout<T>(
+  fn: () => Promise<T> | T,
+  options: { mute?: boolean } = { mute: true },
+): Promise<T> {
+  if (!options.mute) {
+    return fn();
+  }
+
   const stdoutWrite = process.stdout.write.bind(process.stdout);
   const stderrWrite = process.stderr.write.bind(process.stderr);
 
@@ -1949,10 +1654,11 @@ import { x } from "tinyexec";
 import type { Get } from "type-fest";
 
 import type {
+  ConfigWithChangelog,
   InternalReleaseContext,
   ResolvedConfig,
 } from "../config/types.ts";
-import { dryRunPrefix, NAME } from "../constants.ts";
+import { NAME } from "../constants.ts";
 
 type RequireBranch = Get<ResolvedConfig, "git.requireBranch">;
 
@@ -1990,7 +1696,12 @@ export const defu = createDefu((obj, key, value) => {
 });
 
 export async function gitChangeset() {
-  await x("git", ["status", "--porcelain"], {});
+  await x("git", ["status", "--porcelain"], {
+    throwOnError: true,
+    nodeOptions: {
+      stdio: "inherit",
+    },
+  });
 }
 
 export async function isGitRepo() {
@@ -2092,22 +1803,17 @@ export async function getGitCurrentBranch(): Promise<string> {
   return stdout.trim();
 }
 
-export function getCommandRawArgs(
-  rawArgs: string[],
-  commandNames: string[],
-): string[] {
-  const idx = rawArgs.findIndex((arg) => commandNames.includes(arg));
-
-  return idx === -1 ? [] : rawArgs.slice(idx + 1);
+export function dryRunLog(desc: string) {
+  logger.info(ansis.yellow(`[dry-run] would ${desc}`));
 }
 
 export function effect<T>(
   config: ResolvedConfig,
-  desc: string | null,
+  desc: string,
   fn: () => T | Promise<T>,
 ) {
   if (config.dryRun) {
-    logger.info(ansis.yellow(`${dryRunPrefix}${desc}`));
+    dryRunLog(desc);
     return;
   }
   return Promise.resolve().then(fn);
@@ -2116,36 +1822,17 @@ export function effect<T>(
 export function runInDryRun<T>(
   config: ResolvedConfig,
   fn: () => T | Promise<T>,
-): Promise<T | undefined>;
-export function runInDryRun<T>(
-  config: ResolvedConfig,
-  desc: string,
-  fn: () => T | Promise<T>,
-): Promise<T | undefined>;
-export function runInDryRun<T>(
-  config: ResolvedConfig,
-  arg1: string | (() => T | Promise<T>),
-  arg2?: () => T | Promise<T>,
 ): Promise<T | undefined> {
   if (!config.dryRun) {
     return Promise.resolve(undefined);
   }
-
-  let fn: () => T | Promise<T>;
-  let desc: string | undefined;
-
-  if (typeof arg1 === "function") {
-    fn = arg1;
-  } else {
-    desc = arg1;
-    fn = arg2!;
-  }
-
-  if (desc) {
-    logger.info(ansis.yellow(`${dryRunPrefix}${desc}`));
-  }
-
   return Promise.resolve().then(fn);
+}
+
+export function hasChangelog(
+  config: ResolvedConfig,
+): config is ConfigWithChangelog {
+  return config.git.changelog !== false;
 }
 
 
@@ -2172,30 +1859,4 @@ function formatDuration(ms: number) {
   const rest = (s % 60).toFixed(1);
   return `${m}m ${rest}s`;
 }
-
-
-src/utils/type.ts内容如下：
-
-import type { MergeDeep } from "type-fest";
-
-import type {
-  NormalizedChangelogOptions,
-  ResolvedConfig,
-} from "../config/types.ts";
-
-export type ResolvedConfigWithChangelog = MergeDeep<
-  ResolvedConfig,
-  {
-    git: {
-      changelog: NormalizedChangelogOptions;
-    };
-  }
->;
-
-export function hasChangelog(
-  config: ResolvedConfig,
-): config is ResolvedConfigWithChangelog {
-  return config.git.changelog !== false;
-}
-export type PickProp<T, K extends keyof T> = T[K];
 

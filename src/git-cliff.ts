@@ -10,7 +10,7 @@ import { arch as getArch, platform as getPlatform } from "os";
 import { parse, stringify } from "smol-toml";
 import { x } from "tinyexec";
 
-import type { NormalizedChangelogOptions } from "./config/types.ts";
+import type { ChangelogOptions } from "./config/types.ts";
 import { NAME } from "./constants.ts";
 import { removeFlag } from "./utils/argv.ts";
 import { outputFile, remove } from "./utils/fs.ts";
@@ -23,7 +23,7 @@ const cacheDir = resolve(process.cwd(), "node_modules", `.${NAME}`);
 
 // 生成变更日志
 export async function runGitCliff(
-  options: NormalizedChangelogOptions,
+  options: ChangelogOptions,
   spawnOptions: SpawnOptions = {},
 ) {
   const args = removeFlag(options.args, ["c", "config"]);
@@ -46,7 +46,7 @@ export async function runGitCliff(
   return stdout;
 }
 
-async function resolveTemplateConfig(options: NormalizedChangelogOptions) {
+async function resolveTemplateConfig(options: ChangelogOptions) {
   const defaultTplPath = resolve(
     __dirname,
     "..",

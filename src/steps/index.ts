@@ -1,15 +1,15 @@
 import { createSpinner } from "nanospinner";
 
 import type {
+  ChangelogOptions,
   InternalReleaseContext,
   ResolvedConfig,
   Task,
 } from "../config/types.ts";
+import type { HookEvent } from "../config/types.ts";
 import { HOOKS, LogLevels } from "../constants.ts";
-import type { HookEvent } from "../options.ts";
 import { runHook } from "../utils/hook.ts";
-import { effect, hasChangelog, logger, runInDryRun } from "../utils/index.ts";
-import type { ResolvedConfigWithChangelog } from "../utils/type.ts";
+import { effect, logger, runInDryRun } from "../utils/index.ts";
 import { bump } from "./bump.ts";
 import { confirmChangelog } from "./confirmChangelog.ts";
 import { genChangelog } from "./genChangelog.ts";
@@ -26,11 +26,15 @@ const hookTask = (hookName: HookEvent): Task => ({
   effect: `run hook ${hookName}`,
 });
 
-const changelogTasks: Task<ResolvedConfigWithChangelog>[] = [
+const changelogTasks: Task[] = [
   hookTask(HOOKS.BEFORE_CHANGELOG),
   {
     run: async (config, context) => {
-      await genChangelog(config, context);
+      await genChangelog(
+        config.git.changelog as ChangelogOptions,
+        config,
+        context,
+      );
     },
   },
   hookTask(HOOKS.AFTER_CHANGELOG),
@@ -100,7 +104,10 @@ export const steps: Task[] = [
   // 变更日志
   {
     run: async (config, ctx) => {
-      if (!hasChangelog(config)) return;
+      console.log(config.git.changelog);
+
+      if (config.git.changelog === false) return;
+
       await runTasks(changelogTasks, config, ctx);
     },
   },
@@ -134,9 +141,9 @@ export const steps: Task[] = [
   },
 ];
 
-export async function runTasks<T extends ResolvedConfig>(
-  tasks: Task<T>[],
-  config: T,
+export async function runTasks(
+  tasks: Task[],
+  config: ResolvedConfig,
   ctx: InternalReleaseContext,
 ) {
   for (const task of tasks) {
