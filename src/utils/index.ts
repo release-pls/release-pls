@@ -2,7 +2,6 @@ import ansis from "ansis";
 import { createConsola } from "consola";
 import { createDefu } from "defu";
 import { x } from "tinyexec";
-import type { Get } from "type-fest";
 
 import type {
   InternalReleaseContext,
@@ -10,7 +9,7 @@ import type {
 } from "../config/types.ts";
 import { NAME } from "../constants.ts";
 
-type RequireBranch = Get<ResolvedConfig, "git.requireBranch">;
+type RequireBranch = ResolvedConfig["git"]["requireBranch"];
 
 export async function getGitHead(): Promise<string> {
   const { stdout } = await x("git", ["rev-parse", "HEAD"], {

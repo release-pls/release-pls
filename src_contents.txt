@@ -407,10 +407,10 @@ export async function resolveConfig(
 
 src/config/types.ts内容如下：
 
-import type { Simplify } from "type-fest";
 import type * as v from "valibot";
 
 import type { ReleaseContext } from "../options.ts";
+import type { Enabled } from "../utils/type.ts";
 import type {
   hookEvent,
   HookValueSchema,
@@ -425,20 +425,17 @@ export type InlineConfig = v.InferInput<typeof inlineConfigSchema>;
 
 export type ResolvedConfig = v.InferOutput<typeof inlineConfigSchema>;
 
+export type ChangelogOptions = Enabled<ResolvedConfig["git"]["changelog"]>;
+
 export type HookFn = (context: ReleaseContext) => void | Promise<void>;
 export type HookEvent = v.InferInput<typeof hookEvent>;
 export type HookEventValue = v.InferOutput<typeof HookValueSchema>;
 
-export type ConfigWithChangelog = Simplify<
-  Omit<ResolvedConfig, "git"> & {
-    git: Omit<ResolvedConfig["git"], "changelog"> & {
-      changelog: Exclude<ResolvedConfig["git"]["changelog"], false>;
-    };
-  }
->;
-
-export type Task<T = ResolvedConfig> = {
-  run: (config: T, ctx: InternalReleaseContext) => void | Promise<void>;
+export type Task = {
+  run: (
+    config: ResolvedConfig,
+    ctx: InternalReleaseContext,
+  ) => void | Promise<void>;
   effect?: string | ((ctx: InternalReleaseContext) => string) | false;
 };
 
@@ -598,7 +595,7 @@ import { arch as getArch, platform as getPlatform } from "os";
 import { parse, stringify } from "smol-toml";
 import { x } from "tinyexec";
 
-import type { ConfigWithChangelog } from "./config/types.ts";
+import type { ChangelogOptions } from "./config/types.ts";
 import { NAME } from "./constants.ts";
 import { removeFlag } from "./utils/argv.ts";
 import { outputFile, remove } from "./utils/fs.ts";
@@ -609,11 +606,9 @@ const require = createRequire(import.meta.url);
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const cacheDir = resolve(process.cwd(), "node_modules", `.${NAME}`);
 
-type GitCliffOptions = ConfigWithChangelog["git"]["changelog"];
-
 // 生成变更日志
 export async function runGitCliff(
-  options: GitCliffOptions,
+  options: ChangelogOptions,
   spawnOptions: SpawnOptions = {},
 ) {
   const args = removeFlag(options.args, ["c", "config"]);
@@ -636,7 +631,7 @@ export async function runGitCliff(
   return stdout;
 }
 
-async function resolveTemplateConfig(options: GitCliffOptions) {
+async function resolveTemplateConfig(options: ChangelogOptions) {
   const defaultTplPath = resolve(
     __dirname,
     "..",
@@ -954,8 +949,11 @@ src/steps/genChangelog.ts内容如下：
 
 import { createSpinner } from "nanospinner";
 
-import type { InternalReleaseContext } from "../config/types.ts";
-import type { ConfigWithChangelog } from "../config/types.ts";
+import type {
+  ChangelogOptions,
+  InternalReleaseContext,
+} from "../config/types.ts";
+import type { ResolvedConfig } from "../config/types.ts";
 import { OUTPUT_FLAGS } from "../constants.ts";
 import { GenerateChangelogError } from "../errors.ts";
 import { runGitCliff } from "../git-cliff.ts";
@@ -963,30 +961,25 @@ import { getFlagValue, hasFlag, removeFlag } from "../utils/argv.ts";
 import { renderTemplate, runInDryRun } from "../utils/index.js";
 
 export async function genChangelog(
-  config: ConfigWithChangelog,
+  changelog: ChangelogOptions,
+  config: ResolvedConfig,
   context: InternalReleaseContext,
 ) {
   try {
-    config.git.changelog.args = renderArgs(config.git.changelog.args, context);
+    changelog.args = renderArgs(changelog.args, context);
 
     // dry-run模式下永远都把输出选项都移除掉
     await runInDryRun(config, () => {
-      config.git.changelog.args = removeFlag(
-        config.git.changelog.args,
-        OUTPUT_FLAGS,
-      );
+      changelog.args = removeFlag(changelog.args, OUTPUT_FLAGS);
     });
     const spinner = createSpinner("Generating changelog, please wait…").start();
 
-    const stdout = await runGitCliff(config.git.changelog);
+    const stdout = await runGitCliff(changelog);
 
-    const hasOutput = hasFlag(config.git.changelog.args, OUTPUT_FLAGS);
+    const hasOutput = hasFlag(changelog.args, OUTPUT_FLAGS);
 
     if (hasOutput) {
-      const changelogFile = getFlagValue(
-        config.git.changelog.args,
-        OUTPUT_FLAGS,
-      );
+      const changelogFile = getFlagValue(changelog.args, OUTPUT_FLAGS);
 
       context.git.changelog =
         typeof changelogFile === "string" ? changelogFile : "CHANGELOG.md";
@@ -1106,14 +1099,15 @@ src/steps/index.ts内容如下：
 import { createSpinner } from "nanospinner";
 
 import type {
+  ChangelogOptions,
   InternalReleaseContext,
   ResolvedConfig,
   Task,
 } from "../config/types.ts";
-import type { ConfigWithChangelog, HookEvent } from "../config/types.ts";
+import type { HookEvent } from "../config/types.ts";
 import { HOOKS, LogLevels } from "../constants.ts";
 import { runHook } from "../utils/hook.ts";
-import { effect, hasChangelog, logger, runInDryRun } from "../utils/index.ts";
+import { effect, logger, runInDryRun } from "../utils/index.ts";
 import { bump } from "./bump.ts";
 import { confirmChangelog } from "./confirmChangelog.ts";
 import { genChangelog } from "./genChangelog.ts";
@@ -1130,11 +1124,15 @@ const hookTask = (hookName: HookEvent): Task => ({
   effect: `run hook ${hookName}`,
 });
 
-const changelogTasks: Task<ConfigWithChangelog>[] = [
+const changelogTasks: Task[] = [
   hookTask(HOOKS.BEFORE_CHANGELOG),
   {
     run: async (config, context) => {
-      await genChangelog(config, context);
+      await genChangelog(
+        config.git.changelog as ChangelogOptions,
+        config,
+        context,
+      );
     },
   },
   hookTask(HOOKS.AFTER_CHANGELOG),
@@ -1204,7 +1202,10 @@ export const steps: Task[] = [
   // 变更日志
   {
     run: async (config, ctx) => {
-      if (!hasChangelog(config)) return;
+      console.log(config.git.changelog);
+
+      if (config.git.changelog === false) return;
+
       await runTasks(changelogTasks, config, ctx);
     },
   },
@@ -1238,9 +1239,9 @@ export const steps: Task[] = [
   },
 ];
 
-export async function runTasks<T extends ResolvedConfig>(
-  tasks: Task<T>[],
-  config: T,
+export async function runTasks(
+  tasks: Task[],
+  config: ResolvedConfig,
   ctx: InternalReleaseContext,
 ) {
   for (const task of tasks) {
@@ -1654,7 +1655,6 @@ import { x } from "tinyexec";
 import type { Get } from "type-fest";
 
 import type {
-  ConfigWithChangelog,
   InternalReleaseContext,
   ResolvedConfig,
 } from "../config/types.ts";
@@ -1829,12 +1829,6 @@ export function runInDryRun<T>(
   return Promise.resolve().then(fn);
 }
 
-export function hasChangelog(
-  config: ResolvedConfig,
-): config is ConfigWithChangelog {
-  return config.git.changelog !== false;
-}
-
 
 src/utils/timer.ts内容如下：
 
@@ -1859,4 +1853,9 @@ function formatDuration(ms: number) {
   const rest = (s % 60).toFixed(1);
   return `${m}m ${rest}s`;
 }
+
+
+src/utils/type.ts内容如下：
+
+export type Enabled<T> = Exclude<T, false>;
 
