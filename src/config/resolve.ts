@@ -2,10 +2,10 @@ import { parse } from "valibot";
 
 import { NAME } from "../constants.ts";
 import type { UserConfig } from "../options.ts";
+import type { InlineConfig, ResolvedConfig } from "../options.ts";
 import { defu } from "../utils/index.ts";
-import { inlineConfigSchema } from "./configSchema.ts";
 import { loadConfig } from "./index.ts";
-import type { InlineConfig, ResolvedConfig } from "./types.ts";
+import { inlineConfigSchema } from "./schema.ts";
 
 export async function resolveConfig(
   inlineConfig: InlineConfig = {},

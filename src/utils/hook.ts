@@ -3,9 +3,9 @@ import { Listr } from "listr2";
 import { x } from "tinyexec";
 
 import type {
-  HookEventValue,
   HookFn,
   InternalReleaseContext,
+  NormalizedHook,
   ResolvedConfig,
 } from "../config/types.ts";
 import { LogLevels } from "../constants.ts";
@@ -15,7 +15,7 @@ export async function runHook(
   config: ResolvedConfig,
   context: InternalReleaseContext,
   hookName: string,
-  hooks?: HookEventValue,
+  hooks?: NormalizedHook,
 ) {
   if (!hooks?.length) return;
 

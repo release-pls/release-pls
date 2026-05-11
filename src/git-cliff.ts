@@ -61,7 +61,7 @@ async function resolveTemplateConfig(options: ChangelogOptions) {
   const defaultTplRaw = await readFile(defaultTplPath, "utf-8");
   const defaultTplConfig = parse(defaultTplRaw);
 
-  const finalConfig = defu(options.config, defaultTplConfig);
+  const finalConfig = defu(options.config!, defaultTplConfig);
 
   const tmpFile = join(cacheDir, `gitcliff-${randomUUID()}.toml`);
 
