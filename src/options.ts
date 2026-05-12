@@ -211,10 +211,22 @@ export type ResolvedGitConfig = Overwrite<
 >;
 
 export type ResolvedConfig = Overwrite<
-  Required<InlineConfig>,
+  MarkPartial<InlineConfig, "config">,
   {
     verbose: number;
     hooks?: Partial<Record<HookEvent, NormalizedHook>>;
     git: ResolvedGitConfig;
   }
 >;
+
+export interface InternalReleaseContext extends ReleaseContext {
+  initialRef: string;
+}
+
+export type Task = {
+  run: (
+    config: ResolvedConfig,
+    ctx: InternalReleaseContext,
+  ) => void | Promise<void>;
+  effect?: string | ((ctx: InternalReleaseContext) => string) | false;
+};

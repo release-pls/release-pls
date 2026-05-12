@@ -3,11 +3,8 @@ import { createConsola } from "consola";
 import { createDefu } from "defu";
 import { x } from "tinyexec";
 
-import type {
-  InternalReleaseContext,
-  ResolvedConfig,
-} from "../config/types.ts";
 import { NAME } from "../constants.ts";
+import type { InternalReleaseContext, ResolvedConfig } from "../options.ts";
 
 type RequireBranch = ResolvedConfig["git"]["requireBranch"];
 

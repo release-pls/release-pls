@@ -1,5 +1,5 @@
 import { resolveConfig } from "./config/resolve.ts";
-import type { InlineConfig, ResolvedConfig } from "./config/types.ts";
+import type { InlineConfig, ResolvedConfig } from "./options.ts";
 import { checkGitRepoStatus } from "./steps/checkGitRepoStatus.ts";
 import { createContext, runTasks, steps } from "./steps/index.ts";
 import { effect, gitReset } from "./utils/index.ts";

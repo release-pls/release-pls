@@ -1,7 +1,7 @@
 import { confirm } from "@inquirer/prompts";
 import ansis from "ansis";
 
-import type { InternalReleaseContext } from "../config/types.ts";
+import type { InternalReleaseContext } from "../options.ts";
 import { blank, gitChangeset } from "../utils/index.js";
 import { logger } from "../utils/index.js";
 

@@ -2,7 +2,7 @@ import { detect } from "package-manager-detector/detect";
 import { readPackageJSON, writePackageJSON } from "pkg-types";
 import { x } from "tinyexec";
 
-import type { InternalReleaseContext,ResolvedConfig } from "../config/types.ts";
+import type { InternalReleaseContext, ResolvedConfig } from "../options.ts";
 
 export async function bump(
   config: ResolvedConfig,

@@ -1,10 +1,10 @@
-import type { ResolvedConfig } from "../config/types.ts";
 import {
   GitDirtyError,
   GitNotInstalledError,
   GitRemoteNotFoundError,
   NotGitRepoError,
 } from "../errors.js";
+import type { ResolvedConfig } from "../options.ts";
 import {
   effect,
   getGitRemoteUrl,

@@ -1,4 +1,4 @@
-import type { HookEvent } from "./config/types.ts";
+import type { HookEvent } from "./options.ts";
 
 export const NAME = "smarty-release";
 export const OUTPUT_FLAGS = ["o", "output"];

@@ -178,8 +178,8 @@ export const inlineConfigSchema: v.GenericSchema<InlineConfig, ResolvedConfig> =
   v.intersect([
     userConfigSchema,
     v.object({
-      cwd: v.optional(v.string(), "a"),
-      config: v.optional(v.string(), "a"),
+      cwd: v.optional(v.string(), process.cwd()),
+      config: v.optional(v.string()),
       dryRun: v.optional(v.boolean(), false),
       verbose: v.pipe(
         v.optional(v.array(v.boolean()), []),

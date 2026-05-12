@@ -1,13 +1,13 @@
 import { createSpinner } from "nanospinner";
 
+import { HOOKS, LogLevels } from "../constants.ts";
 import type {
-  ChangelogOptions,
+  HookEvent,
   InternalReleaseContext,
+  ResolvedChangelogOptions,
   ResolvedConfig,
   Task,
-} from "../config/types.ts";
-import type { HookEvent } from "../config/types.ts";
-import { HOOKS, LogLevels } from "../constants.ts";
+} from "../options.ts";
 import { runHook } from "../utils/hook.ts";
 import { effect, logger, runInDryRun } from "../utils/index.ts";
 import { bump } from "./bump.ts";
@@ -31,7 +31,7 @@ const changelogTasks: Task[] = [
   {
     run: async (config, context) => {
       await genChangelog(
-        config.git.changelog as ChangelogOptions,
+        config.git.changelog as ResolvedChangelogOptions,
         config,
         context,
       );
@@ -104,8 +104,6 @@ export const steps: Task[] = [
   // 变更日志
   {
     run: async (config, ctx) => {
-      console.log(config.git.changelog);
-
       if (config.git.changelog === false) return;
 
       await runTasks(changelogTasks, config, ctx);

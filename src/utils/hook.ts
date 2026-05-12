@@ -2,13 +2,13 @@ import ansis from "ansis";
 import { Listr } from "listr2";
 import { x } from "tinyexec";
 
+import { LogLevels } from "../constants.ts";
 import type {
   HookFn,
   InternalReleaseContext,
   NormalizedHook,
   ResolvedConfig,
-} from "../config/types.ts";
-import { LogLevels } from "../constants.ts";
+} from "../options.ts";
 import { renderTemplate } from "./index.ts";
 
 export async function runHook(

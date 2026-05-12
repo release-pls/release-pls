@@ -4,9 +4,9 @@ import { cac } from "cac";
 import lt from "semver/functions/lt.js";
 
 import pkg from "../package.json" with { type: "json" };
-import type { InlineConfig } from "./config/types.ts";
 import { NAME } from "./constants.ts";
 import { CancelledError, ExitSignal } from "./errors.ts";
+import type { InlineConfig } from "./options.ts";
 import { logger } from "./utils/index.js";
 
 if (lt(process.version, "22.18.0")) {

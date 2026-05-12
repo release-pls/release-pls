@@ -1,6 +1,6 @@
 import { resolveConfig } from "./config/resolve.ts";
-import type { InlineConfig, ResolvedConfig } from "./config/types.ts";
 import { runGitCliff } from "./git-cliff.ts";
+import type { InlineConfig, ResolvedConfig } from "./options.ts";
 import { logger } from "./utils/index.ts";
 
 export async function changelog(

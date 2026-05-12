@@ -10,8 +10,8 @@ import { arch as getArch, platform as getPlatform } from "os";
 import { parse, stringify } from "smol-toml";
 import { x } from "tinyexec";
 
-import type { ChangelogOptions } from "./config/types.ts";
 import { NAME } from "./constants.ts";
+import type { ChangelogOptions, ResolvedChangelogOptions } from "./options.ts";
 import { removeFlag } from "./utils/argv.ts";
 import { outputFile, remove } from "./utils/fs.ts";
 import { defu } from "./utils/index.ts";
@@ -23,7 +23,7 @@ const cacheDir = resolve(process.cwd(), "node_modules", `.${NAME}`);
 
 // 生成变更日志
 export async function runGitCliff(
-  options: ChangelogOptions,
+  options: ResolvedChangelogOptions,
   spawnOptions: SpawnOptions = {},
 ) {
   const args = removeFlag(options.args, ["c", "config"]);

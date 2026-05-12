@@ -1,9 +1,5 @@
 import { NonZeroExitError, x } from "tinyexec";
 
-import type {
-  InternalReleaseContext,
-  ResolvedConfig,
-} from "../config/types.ts";
 import { LogLevels } from "../constants.ts";
 import {
   ExitSignal,
@@ -11,6 +7,7 @@ import {
   GitPushError,
   GitTagError,
 } from "../errors.ts";
+import type { InternalReleaseContext, ResolvedConfig } from "../options.ts";
 
 export async function gitAdd(config: ResolvedConfig) {
   const isDebug = config.verbose >= LogLevels.debug;

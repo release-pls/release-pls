@@ -2,16 +2,13 @@ import hostedGitInfo from "hosted-git-info";
 import { readPackageJSON } from "pkg-types";
 import semver from "semver";
 
-import type {
-  InternalReleaseContext,
-  ResolvedConfig,
-} from "../config/types.ts";
 import {
   CancelledError,
   GitBranchError,
   GitRemoteParseError,
   NotAllowedBranchError,
 } from "../errors.ts";
+import type { InternalReleaseContext, ResolvedConfig } from "../options.ts";
 import {
   getGitCurrentBranch,
   getGitHead,
@@ -23,7 +20,7 @@ import {
 export async function createContext(
   config: ResolvedConfig,
 ): Promise<InternalReleaseContext> {
-  // const context: InternalReleaseContext = Object.create(null);
+  //  const context: InternalReleaseContext = Object.create(null);
 
   const context = createEmptyObject<InternalReleaseContext>();
 
