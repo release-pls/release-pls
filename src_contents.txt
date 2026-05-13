@@ -1,8 +1,8 @@
 src/changelog.ts内容如下：
 
 import { resolveConfig } from "./config/resolve.ts";
-import type { InlineConfig, ResolvedConfig } from "./config/types.ts";
 import { runGitCliff } from "./git-cliff.ts";
+import type { InlineConfig, ResolvedConfig } from "./options.ts";
 import { logger } from "./utils/index.ts";
 
 export async function changelog(
@@ -34,9 +34,9 @@ import { cac } from "cac";
 import lt from "semver/functions/lt.js";
 
 import pkg from "../package.json" with { type: "json" };
-import type { InlineConfig } from "./config/types.ts";
 import { NAME } from "./constants.ts";
 import { CancelledError, ExitSignal } from "./errors.ts";
+import type { InlineConfig } from "./options.ts";
 import { logger } from "./utils/index.js";
 
 if (lt(process.version, "22.18.0")) {
@@ -98,13 +98,84 @@ try {
 }
 
 
-src/config/configSchema.ts内容如下：
+src/config/index.ts内容如下：
+
+import { resolve } from "node:path";
+
+import type { LilconfigResult,Loader } from "lilconfig";
+import { lilconfig } from "lilconfig";
+
+type LoaderReturn = Promise<Awaited<ReturnType<Loader>>>;
+type LoaderFilepath = Parameters<Loader>[0];
+
+export async function loadConfig<T>(
+  name: string,
+  configPath?: string,
+): Promise<T> {
+  const explorer = lilconfig(name, {
+    loaders: {
+      ".mts": loadTS,
+      ".ts": loadTS,
+      ".cts": loadTS,
+    },
+    searchPlaces: [
+      `${name}.config.ts`,
+      `${name}.config.mts`,
+      `${name}.config.cts`,
+      `${name}.config.json`,
+    ],
+  });
+
+  const result: LilconfigResult = configPath
+    ? await explorer.load(resolve(process.cwd(), configPath))
+    : await explorer.search();
+
+  if (!result) {
+    return {} as T;
+  }
+  return result.config as T;
+}
+async function loadTS(filepath: LoaderFilepath): LoaderReturn {
+  const { createJiti } = await import("jiti");
+  return createJiti(import.meta.url, { interopDefault: true }).import(
+    filepath,
+    { default: true },
+  );
+}
+
+
+src/config/resolve.ts内容如下：
+
+import { parse } from "valibot";
+
+import { NAME } from "../constants.ts";
+import type { UserConfig } from "../options.ts";
+import type { InlineConfig, ResolvedConfig } from "../options.ts";
+import { defu } from "../utils/index.ts";
+import { loadConfig } from "./index.ts";
+import { inlineConfigSchema } from "./schema.ts";
+
+export async function resolveConfig(
+  inlineConfig: InlineConfig = {},
+): Promise<ResolvedConfig> {
+  // 加载配置
+  const fileConfig = await loadConfig<UserConfig>(NAME, inlineConfig.config);
+
+  // 合并选项
+  const merged = defu(inlineConfig, fileConfig);
+
+  // 验证参数合法性
+  return parse(inlineConfigSchema, merged);
+}
+
+
+src/config/schema.ts内容如下：
 
 import type { ReleaseType } from "semver";
 import * as v from "valibot";
 
 import { NAME } from "../constants.ts";
-import type { HookFn } from "./types.ts";
+import type { HookFn, InlineConfig, ResolvedConfig } from "../options.ts";
 
 /**
  * 基础类型
@@ -112,46 +183,23 @@ import type { HookFn } from "./types.ts";
 const stringOrStringArray = v.union([v.string(), v.array(v.string())]);
 
 /**
- * HookEvent
- */
-export const hookEvent = v.union([
-  v.literal("before:init"),
-  v.literal("before:selectVersion"),
-  v.literal("after:selectVersion"),
-  v.literal("after:bump"),
-  v.literal("after:release"),
-  v.literal("before:selectTag"),
-  v.literal("after:selectTag"),
-  v.literal("before:changelog"),
-  v.literal("after:changelog"),
-  v.literal("before:bump"),
-  v.literal("before:git"),
-  v.literal("before:git.add"),
-  v.literal("after:git.add"),
-  v.literal("before:git.commit"),
-  v.literal("after:git.commit"),
-  v.literal("before:git.tag"),
-  v.literal("after:git.tag"),
-  v.literal("before:git.push"),
-  v.literal("after:git.push"),
-  v.literal("after:git"),
-]);
-
-/**
  * Hook
  */
 
-// 运行时仅校验类型
-const HookItemSchema = v.custom<string | HookFn>(
-  (input) => typeof input === "string" || typeof input === "function",
-);
+const hookItem = v.union([
+  v.string(),
+  v.custom<HookFn>((input): input is HookFn => typeof input === "function"),
+]);
 
-export const HookValueSchema = v.pipe(
-  v.union([HookItemSchema, v.array(HookItemSchema)]),
-  v.transform((value) => (Array.isArray(value) ? value : [value])),
+const hooks = v.optional(
+  v.record(
+    v.string(),
+    v.pipe(
+      v.union([hookItem, v.array(hookItem)]),
+      v.transform((value) => (Array.isArray(value) ? value : [value])),
+    ),
+  ),
 );
-
-const hooks = v.optional(v.record(hookEvent, HookValueSchema), {});
 
 /**
  * RemoteProviderConfig
@@ -244,20 +292,6 @@ const changelogConfig = v.object({
   remote,
 });
 
-export type ChangelogTemplate =
-  | "azure-devops-keepachangelog"
-  | "cocogitto"
-  | "detailed"
-  | "github-keepachangelog"
-  | "github"
-  | "keepachangelog"
-  | "minimal"
-  | "scoped"
-  | "scopesorted"
-  | "statistics"
-  | "unconventional"
-  | (string & {}); // 任意字符串，兼容远程链接
-
 /**
  * ChangelogOptions
  */
@@ -266,10 +300,7 @@ const changelogOptions = v.object({
     v.optional(stringOrStringArray, "-o --tag ${version}"),
     v.transform((v) => (Array.isArray(v) ? v : v.trim().split(/\s+/))),
   ),
-  template: v.optional(
-    v.custom<ChangelogTemplate>((input) => typeof input === "string"),
-    "github",
-  ),
+  template: v.optional(v.string(), "github"),
   config: v.optional(changelogConfig, {}),
 });
 
@@ -295,154 +326,45 @@ const git = v.optional(
   {},
 );
 
-const IncrementSchema = v.custom<ReleaseType>(
-  (input) => typeof input === "string",
-);
-
-type DistTag =
-  | "latest"
-  | "next"
-  | "beta"
-  | "alpha"
-  | "canary"
-  | "rc"
-  | (string & {});
-
-const DistTagSchema = v.custom<DistTag>((input) => typeof input === "string");
+const releaseTypeSchema = v.picklist([
+  "major",
+  "premajor",
+  "minor",
+  "preminor",
+  "patch",
+  "prepatch",
+  "prerelease",
+] satisfies ReleaseType[]);
 
 export const userConfigSchema = v.object({
-  increments: v.optional(v.array(IncrementSchema), ["patch", "minor", "major"]),
-  tags: v.optional(v.array(DistTagSchema), ["latest", "next"]),
+  increments: v.optional(v.array(releaseTypeSchema), [
+    "patch",
+    "minor",
+    "major",
+  ]),
+  tags: v.optional(v.array(v.string()), ["latest", "next"]),
   git,
   hooks,
 });
 
-/**
- * InlineConfig（最终）
- */
-export const inlineConfigSchema = v.intersect([
-  userConfigSchema,
-  v.object({
-    cwd: v.optional(v.string()),
-    config: v.optional(v.string()),
-    dryRun: v.optional(v.boolean(), false),
-    verbose: v.pipe(
-      v.optional(v.array(v.boolean()), []),
-      v.transform((value) => value.length),
-    ),
-  }),
-]);
-
-
-src/config/index.ts内容如下：
-
-import { resolve } from "node:path";
-
-import type { LilconfigResult,Loader } from "lilconfig";
-import { lilconfig } from "lilconfig";
-
-type LoaderReturn = Promise<Awaited<ReturnType<Loader>>>;
-type LoaderFilepath = Parameters<Loader>[0];
-
-export async function loadConfig<T>(
-  name: string,
-  configPath?: string,
-): Promise<T> {
-  const explorer = lilconfig(name, {
-    loaders: {
-      ".mts": loadTS,
-      ".ts": loadTS,
-      ".cts": loadTS,
-    },
-    searchPlaces: [
-      `${name}.config.ts`,
-      `${name}.config.mts`,
-      `${name}.config.cts`,
-      `${name}.config.json`,
-    ],
-  });
-
-  const result: LilconfigResult = configPath
-    ? await explorer.load(resolve(process.cwd(), configPath))
-    : await explorer.search();
-
-  if (!result) {
-    return {} as T;
-  }
-  return result.config as T;
-}
-async function loadTS(filepath: LoaderFilepath): LoaderReturn {
-  const { createJiti } = await import("jiti");
-  return createJiti(import.meta.url, { interopDefault: true }).import(
-    filepath,
-    { default: true },
-  );
-}
-
-
-src/config/resolve.ts内容如下：
-
-import { parse } from "valibot";
-
-import { NAME } from "../constants.ts";
-import type { UserConfig } from "../options.ts";
-import { defu } from "../utils/index.ts";
-import { inlineConfigSchema } from "./configSchema.ts";
-import { loadConfig } from "./index.ts";
-import type { InlineConfig, ResolvedConfig } from "./types.ts";
-
-export async function resolveConfig(
-  inlineConfig: InlineConfig = {},
-): Promise<ResolvedConfig> {
-  // 加载配置
-  const fileConfig = await loadConfig<UserConfig>(NAME, inlineConfig.config);
-
-  // 合并选项
-  const merged = defu(inlineConfig, fileConfig);
-
-  // 验证参数合法性
-  return parse(inlineConfigSchema, merged);
-}
-
-
-src/config/types.ts内容如下：
-
-import type * as v from "valibot";
-
-import type { ReleaseContext } from "../options.ts";
-import type { Enabled } from "../utils/type.ts";
-import type {
-  hookEvent,
-  HookValueSchema,
-  inlineConfigSchema,
-} from "./configSchema.ts";
-
-export interface InternalReleaseContext extends ReleaseContext {
-  initialRef: string;
-}
-
-export type InlineConfig = v.InferInput<typeof inlineConfigSchema>;
-
-export type ResolvedConfig = v.InferOutput<typeof inlineConfigSchema>;
-
-export type ChangelogOptions = Enabled<ResolvedConfig["git"]["changelog"]>;
-
-export type HookFn = (context: ReleaseContext) => void | Promise<void>;
-export type HookEvent = v.InferInput<typeof hookEvent>;
-export type HookEventValue = v.InferOutput<typeof HookValueSchema>;
-
-export type Task = {
-  run: (
-    config: ResolvedConfig,
-    ctx: InternalReleaseContext,
-  ) => void | Promise<void>;
-  effect?: string | ((ctx: InternalReleaseContext) => string) | false;
-};
+export const inlineConfigSchema: v.GenericSchema<InlineConfig, ResolvedConfig> =
+  v.intersect([
+    userConfigSchema,
+    v.object({
+      cwd: v.optional(v.string(), process.cwd()),
+      config: v.optional(v.string()),
+      dryRun: v.optional(v.boolean(), false),
+      verbose: v.pipe(
+        v.optional(v.array(v.boolean()), []),
+        v.transform((value) => value.length),
+      ),
+    }),
+  ]);
 
 
 src/constants.ts内容如下：
 
-import type { HookEvent } from "./config/types.ts";
+import type { HookEvent } from "./options.ts";
 
 export const NAME = "smarty-release";
 export const OUTPUT_FLAGS = ["o", "output"];
@@ -595,8 +517,8 @@ import { arch as getArch, platform as getPlatform } from "os";
 import { parse, stringify } from "smol-toml";
 import { x } from "tinyexec";
 
-import type { ChangelogOptions } from "./config/types.ts";
 import { NAME } from "./constants.ts";
+import type { ChangelogOptions, ResolvedChangelogOptions } from "./options.ts";
 import { removeFlag } from "./utils/argv.ts";
 import { outputFile, remove } from "./utils/fs.ts";
 import { defu } from "./utils/index.ts";
@@ -608,7 +530,7 @@ const cacheDir = resolve(process.cwd(), "node_modules", `.${NAME}`);
 
 // 生成变更日志
 export async function runGitCliff(
-  options: ChangelogOptions,
+  options: ResolvedChangelogOptions,
   spawnOptions: SpawnOptions = {},
 ) {
   const args = removeFlag(options.args, ["c", "config"]);
@@ -646,7 +568,7 @@ async function resolveTemplateConfig(options: ChangelogOptions) {
   const defaultTplRaw = await readFile(defaultTplPath, "utf-8");
   const defaultTplConfig = parse(defaultTplRaw);
 
-  const finalConfig = defu(options.config, defaultTplConfig);
+  const finalConfig = defu(options.config!, defaultTplConfig);
 
   const tmpFile = join(cacheDir, `gitcliff-${randomUUID()}.toml`);
 
@@ -680,22 +602,145 @@ function getExePath() {
 
 src/index.ts内容如下：
 
-export * from "./options.ts";
+import type { UserConfig } from "./options.ts";
 
-
-src/options.ts内容如下：
-
-import type { ConsolaInstance } from "consola";
-import type * as v from "valibot";
-
-import type { userConfigSchema } from "./config/configSchema.ts";
-
-export type UserConfig = v.InferInput<typeof userConfigSchema>;
+export type { ReleaseContext, UserConfig } from "./options.ts";
 
 /**
  * 用于 `smarty-release` 配置文件：e.g.`smarty-release.config.*`
  */
 export const defineConfig = (config: UserConfig) => config;
+
+
+src/options.ts内容如下：
+
+import type { ConsolaInstance } from "consola";
+import type { ReleaseType } from "semver";
+
+import type { MarkPartial, Overwrite } from "./utils/type.ts";
+
+export type ChangelogTemplate =
+  | "azure-devops-keepachangelog"
+  | "cocogitto"
+  | "detailed"
+  | "github-keepachangelog"
+  | "github"
+  | "keepachangelog"
+  | "minimal"
+  | "scoped"
+  | "scopesorted"
+  | "statistics"
+  | "unconventional"
+  | (string & {}); // 任意字符串，兼容远程链接
+
+type RemoteProviderConfig = {
+  owner?: string;
+  repo?: string;
+  token?: string;
+};
+
+// commit parser 类型
+export interface CommitParser {
+  message: string; // 正则或匹配字符串
+  group?: string; // 分组
+  default_scope?: string;
+  skip?: boolean; //默认跳过
+}
+
+export interface LinkParsers {
+  pattern?: string;
+  href?: string;
+}
+
+// git 配置
+export interface ChangelogGitConfig {
+  conventional_commits?: boolean;
+  filter_unconventional?: boolean;
+  require_conventional?: boolean;
+  split_commits?: boolean;
+  commit_parsers?: CommitParser[];
+  protect_breaking_commits?: false;
+  filter_commits?: boolean;
+  fail_on_unmatched_commit?: boolean;
+  tag_pattern?: string;
+  skip_tags?: string;
+  ignore_tags?: string;
+  topo_order?: boolean;
+  topo_order_commits?: boolean;
+  sort_commits?: "oldest" | "newest";
+  link_parsers?: LinkParsers[];
+  limit_commits?: number;
+  recurse_submodules?: boolean;
+  include_paths?: string[];
+  exclude_paths?: string[];
+}
+
+// changelog 内容配置
+export interface ChangelogContentConfig {
+  header?: string;
+  body?: string;
+  footer?: string;
+  trim?: boolean;
+}
+
+export interface ChangelogBumpConfig {
+  bump_type?: string;
+  features_always_bump_minor?: boolean;
+  breaking_always_bump_major?: boolean;
+  custom_major_increment_regex?: string;
+  custom_minor_increment_regex?: string;
+  initial_tag?: string;
+}
+
+// remote 配置
+export interface ChangelogRemoteConfig {
+  github?: RemoteProviderConfig;
+  azure_devops?: RemoteProviderConfig;
+  gitlab?: RemoteProviderConfig;
+  gitea?: RemoteProviderConfig;
+  bitbucket?: RemoteProviderConfig;
+}
+
+export interface ChangelogConfig {
+  bump?: ChangelogBumpConfig;
+  changelog?: ChangelogContentConfig;
+  git?: ChangelogGitConfig;
+  remote?: ChangelogRemoteConfig;
+}
+
+export type ChangelogOptions = {
+  args?: string | string[];
+  template?: ChangelogTemplate;
+  config?: ChangelogConfig;
+};
+
+type DistTag =
+  | "latest"
+  | "next"
+  | "beta"
+  | "alpha"
+  | "canary"
+  | "rc"
+  | (string & {}); // 允许自定义
+
+export type HookPrefix = "before" | "after";
+
+type StepName =
+  | "selectVersion"
+  | "selectTag"
+  | "changelog"
+  | "bump"
+  | "git"
+  | "git.add"
+  | "git.commit"
+  | "git.tag"
+  | "git.push";
+
+export type HookEvent =
+  | "before:init"
+  | `before:${StepName}`
+  | `after:${StepName}`
+  | `after:release`;
 
 /**
  * CLI运行时产生的一些配置
@@ -723,11 +768,90 @@ export interface ReleaseContext {
   cancel(message?: string): never;
 }
 
+export type HookFn = (context: ReleaseContext) => void | Promise<void>;
+export type NormalizedHook = (HookFn | string)[];
+type Hooks = Partial<Record<HookEvent, HookFn | string | NormalizedHook>>;
+
+/**
+ * Options for smarty-release.
+ */
+export interface UserConfig {
+  /**
+   * 控制版本号递增类型（符合语义化版本 SemVer）
+   *
+   * @example
+   *  patch → 修复 bug（1.0.0 → 1.0.1）
+   *  minor → 新功能（1.0.0 → 1.1.0）
+   *  major → 破坏性更新（1.0.0 → 2.0.0）
+   */
+  increments?: ReleaseType[];
+
+  /**
+   * 发布时使用的 npm dist-tag
+   */
+  tags?: DistTag[];
+
+  /** 控制 Git 操作行为 */
+  git?: {
+    /** 变更日志是否生成 */
+    changelog?: false | ChangelogOptions;
+    requireBranch?: string | string[] | RegExp | false;
+    commitMessage?: string;
+    commitArgs?: string[];
+    tagName?: string;
+  };
+
+  /** 生命周期钩子 */
+  hooks?: Hooks;
+}
+
+export interface InlineConfig extends UserConfig {
+  config?: string;
+  dryRun?: boolean;
+  verbose?: boolean[];
+  cwd?: string;
+}
+
+export type ResolvedChangelogOptions = Overwrite<
+  MarkPartial<ChangelogOptions, "config">,
+  {
+    args: string[];
+  }
+>;
+
+export type ResolvedGitConfig = Overwrite<
+  Required<NonNullable<InlineConfig["git"]>>,
+  {
+    changelog: false | ResolvedChangelogOptions;
+  }
+>;
+
+export type ResolvedConfig = Overwrite<
+  MarkPartial<InlineConfig, "config">,
+  {
+    verbose: number;
+    hooks?: Partial<Record<HookEvent, NormalizedHook>>;
+    git: ResolvedGitConfig;
+  }
+>;
+
+export interface InternalReleaseContext extends ReleaseContext {
+  initialRef: string;
+}
+
+export type Task = {
+  run: (
+    config: ResolvedConfig,
+    ctx: InternalReleaseContext,
+  ) => void | Promise<void>;
+  effect?: string | ((ctx: InternalReleaseContext) => string) | false;
+};
+
 
 src/release.ts内容如下：
 
 import { resolveConfig } from "./config/resolve.ts";
-import type { InlineConfig, ResolvedConfig } from "./config/types.ts";
+import type { InlineConfig, ResolvedConfig } from "./options.ts";
 import { checkGitRepoStatus } from "./steps/checkGitRepoStatus.ts";
 import { createContext, runTasks, steps } from "./steps/index.ts";
 import { effect, gitReset } from "./utils/index.ts";
@@ -759,7 +883,7 @@ import { detect } from "package-manager-detector/detect";
 import { readPackageJSON, writePackageJSON } from "pkg-types";
 import { x } from "tinyexec";
 
-import type { InternalReleaseContext,ResolvedConfig } from "../config/types.ts";
+import type { InternalReleaseContext, ResolvedConfig } from "../options.ts";
 
 export async function bump(
   config: ResolvedConfig,
@@ -785,13 +909,13 @@ export async function bump(
 
 src/steps/checkGitRepoStatus.ts内容如下：
 
-import type { ResolvedConfig } from "../config/types.ts";
 import {
   GitDirtyError,
   GitNotInstalledError,
   GitRemoteNotFoundError,
   NotGitRepoError,
 } from "../errors.js";
+import type { ResolvedConfig } from "../options.ts";
 import {
   effect,
   getGitRemoteUrl,
@@ -824,7 +948,7 @@ src/steps/confirmChangelog.ts内容如下：
 
 import { confirm } from "@inquirer/prompts";
 
-import type { InternalReleaseContext } from "../config/types.ts";
+import type { InternalReleaseContext } from "../options.ts";
 
 export async function confirmChangelog(context: InternalReleaseContext) {
   // 再来一个询问,询问用户变更日志是否正常
@@ -842,16 +966,13 @@ import hostedGitInfo from "hosted-git-info";
 import { readPackageJSON } from "pkg-types";
 import semver from "semver";
 
-import type {
-  InternalReleaseContext,
-  ResolvedConfig,
-} from "../config/types.ts";
 import {
   CancelledError,
   GitBranchError,
   GitRemoteParseError,
   NotAllowedBranchError,
 } from "../errors.ts";
+import type { InternalReleaseContext, ResolvedConfig } from "../options.ts";
 import {
   getGitCurrentBranch,
   getGitHead,
@@ -863,7 +984,7 @@ import {
 export async function createContext(
   config: ResolvedConfig,
 ): Promise<InternalReleaseContext> {
-  // const context: InternalReleaseContext = Object.create(null);
+  //  const context: InternalReleaseContext = Object.create(null);
 
   const context = createEmptyObject<InternalReleaseContext>();
 
@@ -949,19 +1070,19 @@ src/steps/genChangelog.ts内容如下：
 
 import { createSpinner } from "nanospinner";
 
-import type {
-  ChangelogOptions,
-  InternalReleaseContext,
-} from "../config/types.ts";
-import type { ResolvedConfig } from "../config/types.ts";
 import { OUTPUT_FLAGS } from "../constants.ts";
 import { GenerateChangelogError } from "../errors.ts";
 import { runGitCliff } from "../git-cliff.ts";
+import type {
+  InternalReleaseContext,
+  ResolvedChangelogOptions,
+  ResolvedConfig,
+} from "../options.ts";
 import { getFlagValue, hasFlag, removeFlag } from "../utils/argv.ts";
 import { renderTemplate, runInDryRun } from "../utils/index.js";
 
 export async function genChangelog(
-  changelog: ChangelogOptions,
+  changelog: ResolvedChangelogOptions,
   config: ResolvedConfig,
   context: InternalReleaseContext,
 ) {
@@ -1002,10 +1123,6 @@ src/steps/git.ts内容如下：
 
 import { NonZeroExitError, x } from "tinyexec";
 
-import type {
-  InternalReleaseContext,
-  ResolvedConfig,
-} from "../config/types.ts";
 import { LogLevels } from "../constants.ts";
 import {
   ExitSignal,
@@ -1013,6 +1130,7 @@ import {
   GitPushError,
   GitTagError,
 } from "../errors.ts";
+import type { InternalReleaseContext, ResolvedConfig } from "../options.ts";
 
 export async function gitAdd(config: ResolvedConfig) {
   const isDebug = config.verbose >= LogLevels.debug;
@@ -1098,14 +1216,14 @@ src/steps/index.ts内容如下：
 
 import { createSpinner } from "nanospinner";
 
+import { HOOKS, LogLevels } from "../constants.ts";
 import type {
-  ChangelogOptions,
+  HookEvent,
   InternalReleaseContext,
+  ResolvedChangelogOptions,
   ResolvedConfig,
   Task,
-} from "../config/types.ts";
-import type { HookEvent } from "../config/types.ts";
-import { HOOKS, LogLevels } from "../constants.ts";
+} from "../options.ts";
 import { runHook } from "../utils/hook.ts";
 import { effect, logger, runInDryRun } from "../utils/index.ts";
 import { bump } from "./bump.ts";
@@ -1129,7 +1247,7 @@ const changelogTasks: Task[] = [
   {
     run: async (config, context) => {
       await genChangelog(
-        config.git.changelog as ChangelogOptions,
+        config.git.changelog as ResolvedChangelogOptions,
         config,
         context,
       );
@@ -1202,8 +1320,6 @@ export const steps: Task[] = [
   // 变更日志
   {
     run: async (config, ctx) => {
-      console.log(config.git.changelog);
-
       if (config.git.changelog === false) return;
 
       await runTasks(changelogTasks, config, ctx);
@@ -1263,10 +1379,7 @@ src/steps/selectTag.ts内容如下：
 import { select } from "@inquirer/prompts";
 import { prerelease } from "semver";
 
-import type {
-  InternalReleaseContext,
-  ResolvedConfig,
-} from "../config/types.ts";
+import type { InternalReleaseContext, ResolvedConfig } from "../options.ts";
 
 type Choice = {
   name: string;
@@ -1307,10 +1420,10 @@ export async function selectTag(
 
 src/steps/selectVersion.ts内容如下：
 
-import { input,select } from "@inquirer/prompts";
-import { gt,inc, prerelease, valid } from "semver";
+import { input, select } from "@inquirer/prompts";
+import { gt, inc, prerelease, valid } from "semver";
 
-import type { InternalReleaseContext,ResolvedConfig } from "../config/types.ts";
+import type { InternalReleaseContext, ResolvedConfig } from "../options.ts";
 import { renderTemplate } from "../utils/index.ts";
 
 export async function selectVersion(
@@ -1387,7 +1500,7 @@ src/steps/summary.ts内容如下：
 import { confirm } from "@inquirer/prompts";
 import ansis from "ansis";
 
-import type { InternalReleaseContext } from "../config/types.ts";
+import type { InternalReleaseContext } from "../options.ts";
 import { blank, gitChangeset } from "../utils/index.js";
 import { logger } from "../utils/index.js";
 
@@ -1539,20 +1652,20 @@ import ansis from "ansis";
 import { Listr } from "listr2";
 import { x } from "tinyexec";
 
+import { LogLevels } from "../constants.ts";
 import type {
-  HookEventValue,
   HookFn,
   InternalReleaseContext,
+  NormalizedHook,
   ResolvedConfig,
-} from "../config/types.ts";
-import { LogLevels } from "../constants.ts";
+} from "../options.ts";
 import { renderTemplate } from "./index.ts";
 
 export async function runHook(
   config: ResolvedConfig,
   context: InternalReleaseContext,
   hookName: string,
-  hooks?: HookEventValue,
+  hooks?: NormalizedHook,
 ) {
   if (!hooks?.length) return;
 
@@ -1652,15 +1765,11 @@ import ansis from "ansis";
 import { createConsola } from "consola";
 import { createDefu } from "defu";
 import { x } from "tinyexec";
-import type { Get } from "type-fest";
 
-import type {
-  InternalReleaseContext,
-  ResolvedConfig,
-} from "../config/types.ts";
 import { NAME } from "../constants.ts";
+import type { InternalReleaseContext, ResolvedConfig } from "../options.ts";
 
-type RequireBranch = Get<ResolvedConfig, "git.requireBranch">;
+type RequireBranch = ResolvedConfig["git"]["requireBranch"];
 
 export async function getGitHead(): Promise<string> {
   const { stdout } = await x("git", ["rev-parse", "HEAD"], {
@@ -1858,4 +1967,8 @@ function formatDuration(ms: number) {
 src/utils/type.ts内容如下：
 
 export type Enabled<T> = Exclude<T, false>;
+
+export type Overwrite<T, U> = Omit<T, keyof U> & U;
+export type MarkPartial<T, K extends keyof T> = Omit<Required<T>, K> &
+  Partial<Pick<T, K>>;
 
